@@ -1,0 +1,64 @@
+= Slackauth
+:hide-uri-scheme:
+
+Slackauth is an experimental Slack authentication library using
+https://github.com/go-rod/rod[Rod] library.
+
+The advantage over the Playwright is that rod uses chromedp, which is faster
+and does not require nodejs.  The drawback is that it can't use Firefox.
+
+== Types of login
+
+1. Email and password (can be done headlessly)
+2. SSO (manual)
+
+=== Example: headless login
+
+[source,go]
+----
+func autoLogin(ctx context.Context) {
+	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
+	defer cancel()
+
+	workspace := envOrScan("AUTH_WORKSPACE", "Enter workspace: ")
+	username := envOrScan("EMAIL", "Enter email: ")
+	password := envOrScan("PASSWORD", "Enter password: ")
+
+	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(), slackauth.WithNoConsentPrompt())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(token)
+	fmt.Println(cookies)
+}
+
+func envOrScan(env, prompt string) string {
+	v := os.Getenv(env)
+	if v != "" {
+		return v
+	}
+	for v == "" {
+		fmt.Print(prompt)
+		fmt.Scanln(&v)
+	}
+	return v
+}
+----
+
+=== Example: manual login
+
+[source,go]
+----
+func browserLogin(ctx context.Context) {
+	const workspace = "some workspace"
+	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
+	defer cancel()
+
+	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(token)
+	fmt.Println(cookies)
+}
+----
