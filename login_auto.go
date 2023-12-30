@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	idPassword = "#password"
-	idEmail    = "#email"
-	idAnyError = `[data-qa-error="true"]`
-	idRedirect = `[data-qa="ssb_redirect_open_in_browser"]`
+	idPassword      = "#password"
+	idEmail         = "#email"
+	idPasswordLogin = `[data-qa="sign_in_password_link"]`
+	idAnyError      = `[data-qa-error="true"]`
+	idRedirect      = `[data-qa="ssb_redirect_open_in_browser"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -36,7 +37,10 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	var browser = rod.New().Context(ctx)
 	if opts.debug {
 		l := launcher.New().Headless(false).Devtools(false)
-		url := l.MustLaunch()
+		url, err := l.Launch()
+		if err != nil {
+			return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
+		}
 		browser = browser.ControlURL(url).Trace(true).SlowMotion(debugDelay)
 	}
 
@@ -59,9 +63,17 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 
 	// if there's no password element on the page, we must be on the "email
 	// login" page.  We need to switch away to the password login.
-	if !page.MustHas(idPassword) {
+	if has, _, err := page.Has(idPassword); err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "check for password field"}
+	} else if !has {
 		slog.Debug("switching to password login")
-		page.MustElement(`[data-qa="sign_in_password_link"]`).MustClick()
+		el, err := page.Element(idPasswordLogin)
+		if err != nil {
+			return "", nil, ErrBrowser{Err: err, FailedTo: "find password login link"}
+		}
+		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			return "", nil, ErrBrowser{Err: err, FailedTo: "click password login link"}
+		}
 	}
 	// fill in email and password fields.
 	if fldEmail, err := page.Element(idEmail); err != nil {
@@ -81,20 +93,15 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 			return "", nil, ErrBrowser{Err: err, FailedTo: "submit login form"}
 		}
 	}
-	var errorOccurred bool
-	_ = page.Race().
-		Element(idAnyError).
-		MustHandle(func(e *rod.Element) {
-			slog.Debug("looks like some error occurred")
-			if opts.debug {
-				page.MustScreenshot("login-error.png")
-			}
-			errorOccurred = true
-		}).
-		Element(idRedirect).MustDo()
-
-	if errorOccurred {
-		return "", nil, errors.New("login error")
+	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
+		slog.Debug("looks like some error occurred")
+		if opts.debug {
+			page.MustScreenshot("login-error.png")
+		}
+		return errors.New("slack reported an error during login")
+	}).Element(idRedirect)
+	if _, err := rctx.Do(); err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
 	}
 
 	ctx, cancel := context.WithTimeoutCause(ctx, 30*time.Second, errors.New("login timeout"))
