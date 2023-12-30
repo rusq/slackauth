@@ -66,7 +66,7 @@ func (h *hijacker) Stop() error {
 func (h *hijacker) Wait(ctx context.Context) (string, []*http.Cookie, error) {
 	select {
 	case <-ctx.Done():
-		return "", nil, ctx.Err()
+		return "", nil, context.Cause(ctx)
 	case creds := <-h.credsC:
 		return creds.Token, creds.Cookies, creds.Err
 	}
