@@ -47,6 +47,9 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	h := newHijacker(page)
 	defer h.Stop()
 
+	ctx, cancel := withTabGuard(ctx, browser, page.TargetID)
+	defer cancel(nil)
+
 	token, cookies, err := h.Wait(ctx)
 	if err != nil {
 		return "", nil, err

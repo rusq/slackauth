@@ -1,10 +1,15 @@
 package slackauth
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 const domain = ".slack.com"
@@ -96,4 +101,19 @@ func workspaceURL(workspace string) (string, error) {
 		return "", ErrBadWorkspace{Name: workspace}
 	}
 	return "https://" + workspace + domain + "/", nil
+}
+
+// withTabGuard creates a context that is cancelled when the target is
+// destroyed.
+func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.TargetTargetID) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	go browser.EachEvent(func(e *proto.TargetTargetDestroyed) {
+		if e.TargetID != targetID {
+			// skipping unrelated target (user opened pages)
+			return
+		}
+		slog.Debug("target destroyed", "target", e.TargetID)
+		cancel(errors.New("target page is closed"))
+	})()
+	return ctx, cancel
 }

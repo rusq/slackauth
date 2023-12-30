@@ -86,11 +86,14 @@ func setCookies(browser *rod.Browser, cookies []*http.Cookie) error {
 	return nil
 }
 
-const maxMem = 131072
+const (
+	maxMem     = 131072
+	paramToken = "token"
+)
 
 func extractToken(r *http.Request) (string, error) {
 	if err := r.ParseMultipartForm(maxMem); err != nil {
 		return "", err
 	}
-	return r.Form.Get("token"), nil
+	return r.Form.Get(paramToken), nil
 }
