@@ -99,6 +99,10 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 
 	ctx, cancel := context.WithTimeoutCause(ctx, 30*time.Second, errors.New("login timeout"))
 	defer cancel()
+
+	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID)
+	defer cancelCause(nil)
+
 	token, cookies, err := h.Wait(ctx)
 	if err != nil {
 		return "", nil, err
