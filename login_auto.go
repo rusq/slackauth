@@ -36,7 +36,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 
 	isHeadless := !opts.debug
 	l := launcher.New().
-		Leakless(false). // Causes false positive on Windows, see #260
+		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
 		Headless(isHeadless).
 		Devtools(false)
 	defer l.Cleanup()

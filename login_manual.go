@@ -20,8 +20,8 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	opts.apply(opt)
 
 	l := launcher.New().
-		Headless(opts.debug).
-		Leakless(false). // Causes false positive on Windows, see #260
+		Headless(false).             // browser window must be visible
+		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
 		Devtools(false)
 	defer l.Cleanup()
 
