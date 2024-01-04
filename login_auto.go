@@ -34,15 +34,29 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	var opts options
 	opts.apply(opt)
 
-	var browser = rod.New().Context(ctx)
-	if opts.debug {
-		l := launcher.New().Headless(false).Devtools(false)
-		url, err := l.Launch()
-		if err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
-		}
-		browser = browser.ControlURL(url).Trace(true).SlowMotion(debugDelay)
+	isHeadless := !opts.debug
+	l := launcher.New().
+		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
+		Headless(isHeadless).
+		Devtools(false)
+	defer l.Cleanup()
+
+	url, err := l.Launch()
+	if err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
 	}
+
+	var delay = 0 * time.Millisecond
+	if opts.debug {
+		delay = debugDelay
+	}
+
+	var browser = rod.New().
+		Context(ctx).
+		ControlURL(url).
+		Trace(opts.debug).
+		SlowMotion(delay)
+	defer browser.Close()
 
 	if err := browser.Connect(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "connect"}

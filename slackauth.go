@@ -49,9 +49,9 @@ func WithCookie(cookie ...*http.Cookie) Option {
 }
 
 // WithDebug enables debug logging.
-func WithDebug() Option {
+func WithDebug(b bool) Option {
 	return func(o *options) {
-		o.debug = true
+		o.debug = b
 	}
 }
 

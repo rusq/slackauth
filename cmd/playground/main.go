@@ -20,7 +20,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	// browserLogin(ctx)
+	//browserLogin(ctx)
 	autoLogin(ctx)
 }
 
@@ -45,7 +45,7 @@ func autoLogin(ctx context.Context) {
 	username := envOrScan("EMAIL", "Enter email: ")
 	password := envOrScan("PASSWORD", "Enter password: ")
 
-	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(), slackauth.WithNoConsentPrompt())
+	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(false), slackauth.WithNoConsentPrompt())
 	if err != nil {
 		log.Fatal(err)
 	}
