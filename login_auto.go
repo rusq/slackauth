@@ -3,6 +3,7 @@ package slackauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,11 +15,13 @@ import (
 )
 
 const (
-	idPassword      = "#password"
-	idEmail         = "#email"
-	idPasswordLogin = `[data-qa="sign_in_password_link"]`
-	idAnyError      = `[data-qa-error="true"]`
-	idRedirect      = `[data-qa="ssb_redirect_open_in_browser"]`
+	idPassword        = "#password"
+	idPasswordError   = "#password_error"
+	idSignInAlertText = ".c-inline_alert__text"
+	idEmail           = "#email"
+	idPasswordLogin   = `[data-qa="sign_in_password_link"]`
+	idAnyError        = `[data-qa-error="true"]`
+	idRedirect        = `[data-qa="ssb_redirect_open_in_browser"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -112,7 +115,18 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		if opts.debug {
 			page.MustScreenshot("login-error.png")
 		}
-		return errors.New("slack reported an error during login")
+		if has, _, err := page.Has(idPasswordError); err == nil && has {
+			el, err := page.Element(idSignInAlertText)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			txt, err := el.Text()
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			return fmt.Errorf("%w, slack message: [%s]", ErrInvalidCredentials, txt)
+		}
+		return ErrLoginError
 	}).Element(idRedirect)
 	if _, err := rctx.Do(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
