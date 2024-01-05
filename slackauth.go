@@ -56,9 +56,11 @@ func WithDebug(b bool) Option {
 }
 
 var (
-	// ErrLoginTimeout indicates that there was an error during the post-login
-	// flow.
-	ErrLoginTimeout = errors.New("login timeout")
+	// ErrInvalidCredentials indicates that the credentials were invalid.
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrLoginError indicates that some error of unknown nature occurred
+	// during login.
+	ErrLoginError = errors.New("slack reported an error during login")
 )
 
 // ErrBadWorkspace is returned when the workspace name is invalid.
