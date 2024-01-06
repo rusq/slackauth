@@ -18,7 +18,11 @@ type Option func(*options)
 
 type options struct {
 	cookies []*http.Cookie
-	debug   bool
+
+	// codeFn is the function that is called when slack does not recognise the browser and challenges the user with a code sent to email.
+	// it must return the user-entered code.
+	codeFn func(email string) (code int, err error)
+	debug  bool
 }
 
 func (o *options) apply(opts []Option) {
@@ -45,6 +49,17 @@ func WithNoConsentPrompt() Option {
 func WithCookie(cookie ...*http.Cookie) Option {
 	return func(o *options) {
 		o.cookies = append(o.cookies, cookie...)
+	}
+}
+
+// WithChallengeFunc sets the function that is called when slack does not
+// recognise the browser and challenges the user with a code sent to email.
+// All the function has to do is to accept the user input and return the code.
+//
+// See [SimpleChallengeFn](#SimpleChallengeFn) for an example.
+func WithChallengeFunc(fn func(email string) (code int, err error)) Option {
+	return func(o *options) {
+		o.codeFn = fn
 	}
 }
 

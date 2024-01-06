@@ -15,13 +15,24 @@ import (
 )
 
 const (
-	idPassword        = "#password"
+	idPasswordLogin = `[data-qa="sign_in_password_link"]`
+
+	idPassword = "#password"
+	idEmail    = "#email"
+
+	idAnyError        = `[data-qa-error="true"]`
 	idPasswordError   = "#password_error"
 	idSignInAlertText = ".c-inline_alert__text"
-	idEmail           = "#email"
-	idPasswordLogin   = `[data-qa="sign_in_password_link"]`
-	idAnyError        = `[data-qa-error="true"]`
-	idRedirect        = `[data-qa="ssb_redirect_open_in_browser"]`
+
+	idRedirect = `[data-qa="ssb_redirect_open_in_browser"]`
+
+	idUnknownBrowser = `#enter_code_app_root`
+	idDigit1         = `[aria-label="digit 1 of 6"]`
+	idDigit2         = `[aria-label="digit 2 of 6"]`
+	idDigit3         = `[aria-label="digit 3 of 6"]`
+	idDigit4         = `[aria-label="digit 4 of 6"]`
+	idDigit5         = `[aria-label="digit 5 of 6"]`
+	idDigit6         = `[aria-label="digit 6 of 6"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -34,7 +45,9 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	if err != nil {
 		return "", nil, err
 	}
-	var opts options
+	var opts options = options{
+		codeFn: SimpleChallengeFn,
+	}
 	opts.apply(opt)
 
 	isHeadless := !opts.debug
@@ -112,9 +125,6 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	}
 	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
 		slog.Debug("looks like some error occurred")
-		if opts.debug {
-			page.MustScreenshot("login-error.png")
-		}
 		if has, _, err := page.Has(idPasswordError); err == nil && has {
 			el, err := page.Element(idSignInAlertText)
 			if err != nil {
@@ -127,7 +137,17 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 			return fmt.Errorf("%w, slack message: [%s]", ErrInvalidCredentials, txt)
 		}
 		return ErrLoginError
-	}).Element(idRedirect)
+	}).Element(idUnknownBrowser).Handle(func(e *rod.Element) error {
+		slog.Debug("looks like we're on the unknown browser page")
+		code, err := opts.codeFn(email)
+		if err != nil {
+			return fmt.Errorf("failed to get challenge code: %w", err)
+		}
+		if err := enterCode(page, code); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
+		}
+		return nil
+	}).Element(idRedirect) // success
 	if _, err := rctx.Do(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
 	}
@@ -143,4 +163,33 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		return "", nil, err
 	}
 	return token, cookies, nil
+}
+
+// SimpleChallengeFn is a simple challenge function that reads a single
+// integer from stdin.  It is used as a default challenge function when
+// none is provided.
+func SimpleChallengeFn(email string) (int, error) {
+	var code int
+	fmt.Printf("Slack has sent you an email message with a challenge code to your %s address.\nPlease open your email and type the code from the message.\n\nEnter code: ", email)
+	_, err := fmt.Scanf("%d", &code)
+	if err != nil {
+		return 0, err
+	}
+	return code, nil
+}
+
+func enterCode(page *rod.Page, code int) error {
+	sCode := fmt.Sprintf("%06d", code)
+
+	elements := []string{idDigit1, idDigit2, idDigit3, idDigit4, idDigit5, idDigit6}
+	for i, id := range elements {
+		el, err := page.Element(id)
+		if err != nil {
+			return ErrBrowser{Err: err, FailedTo: "find digit input field"}
+		}
+		if err := el.Input(string(sCode[i])); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "fill in digit input field"}
+		}
+	}
+	return nil
 }

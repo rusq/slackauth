@@ -14,6 +14,8 @@ import (
 	"github.com/rusq/slackauth"
 )
 
+var enableTrace = os.Getenv("DEBUG") == "1"
+
 var _ = godotenv.Load()
 
 func main() {
@@ -45,7 +47,7 @@ func autoLogin(ctx context.Context) {
 	username := envOrScan("EMAIL", "Enter email: ")
 	password := envOrScan("PASSWORD", "Enter password: ")
 
-	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(false), slackauth.WithNoConsentPrompt())
+	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(enableTrace), slackauth.WithNoConsentPrompt())
 	if err != nil {
 		log.Fatal(err)
 	}

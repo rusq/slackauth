@@ -4,3 +4,4 @@
 .env
 *.png
 .idea
+.vscode
