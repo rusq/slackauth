@@ -7,12 +7,71 @@ https://github.com/go-rod/rod[Rod] library.
 The advantage over the Playwright is that rod uses chromedp, which is faster
 and does not require nodejs.  The drawback is that it can't use Firefox.
 
+https://pkg.go.dev/github.com/rusq/slackauth[Go package documentation]
+
 == Types of login
 
-1. Email and password (can be done headlessly)
-2. SSO (manual)
+The library implements two types of Login:
 
-=== Example: headless login
+1. Interactive
+2. Headless
+
+=== Interactive
+
+In the Interactive mode, the browser opens on the address of the Slack
+workspace, and user needs to follow the usual authentication flow, it could be
+a Email/Password, SSO, Google, etc.
+
+Call the `slackauth.Browser` function to start the Interactive login.  It will
+block until the timeout expires or the user does something, i.e. logs in or
+closes the page/browser.
+
+The library detects if the user closes the tab with Slack website or the
+browser, in this case the function returns an error.  It doesn't track the
+website that user is on, so user can navigate away and browse the web, if they
+decide so, until the timeout destroys the browser.
+
+==== Example
+
+[source,go]
+----
+func browserLogin(ctx context.Context) {
+	const workspace = "some workspace"
+	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
+	defer cancel()
+
+	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(token)
+	fmt.Println(cookies)
+}
+----
+
+=== Headless
+
+In the Headless mode, the browser is not visible to the user, and the
+authentication flow is automated.  The user needs to provide the workspace,
+email and password, and the library will do the rest.
+
+Call the `slackauth.Headless` function to start the Headless login.  It will
+block until login succeeds or fails.
+
+There's a special case when Slack does not recognise the browser and asks the
+user to enter the confirmation code that was sent on the user's email.  In
+this case, Headless calls the provided interactive challenge function (see the
+`WithChallengeFunc` option) and waits for the user to enter the code.  After
+the user enters the code, it will be passed to the page and the login process
+will continue.
+
+There's the fallback challenge function, but it's simple and ugly, so you're
+encouraged to provide your own beautiful one.
+
+Overall, headless login looks nicer, but more fragile - it will start failing
+should Slack decide to change the login elements.
+
+==== Example
 
 [source,go]
 ----
@@ -45,24 +104,7 @@ func envOrScan(env, prompt string) string {
 }
 ----
 
-=== Example: manual login
-
-[source,go]
-----
-func browserLogin(ctx context.Context) {
-	const workspace = "some workspace"
-	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
-	defer cancel()
-
-	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt())
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(token)
-	fmt.Println(cookies)
-}
-----
-
 == References
+- https://pkg.go.dev/github.com/rusq/slackauth[slackauth package documentation]
 - https://go-rod.github.io/[Rod documentation]
 - https://chromedevtools.github.io/devtools-protocol/1-3/[Chrome DevTools Protocol (stable, 1.3)]
