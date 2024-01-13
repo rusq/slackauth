@@ -15,6 +15,9 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	if err != nil {
 		return "", nil, err
 	}
+	if err := checkWorkspaceURL(wspURL); err != nil {
+		return "", nil, err
+	}
 
 	var opts options
 	opts.apply(opt)
