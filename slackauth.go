@@ -76,6 +76,8 @@ var (
 	// ErrLoginError indicates that some error of unknown nature occurred
 	// during login.
 	ErrLoginError = errors.New("slack reported an error during login")
+	// ErrWorkspaceNotFound indicates that the workspace name was invalid.
+	ErrWorkspaceNotFound = errors.New("workspace not found")
 )
 
 // ErrBadWorkspace is returned when the workspace name is invalid.
@@ -133,4 +135,14 @@ func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.T
 		cancel(errors.New("target page is closed"))
 	})()
 	return ctx, cancel
+}
+
+func checkWorkspaceURL(uri string) error {
+	// quick status check
+	if resp, err := http.Head(uri); err != nil {
+		return ErrWorkspaceNotFound
+	} else if resp.StatusCode != http.StatusOK {
+		return ErrWorkspaceNotFound
+	}
+	return nil
 }

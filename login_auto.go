@@ -27,12 +27,7 @@ const (
 	idRedirect = `[data-qa="ssb_redirect_open_in_browser"]`
 
 	idUnknownBrowser = `#enter_code_app_root`
-	idDigit1         = `[aria-label="digit 1 of 6"]`
-	idDigit2         = `[aria-label="digit 2 of 6"]`
-	idDigit3         = `[aria-label="digit 3 of 6"]`
-	idDigit4         = `[aria-label="digit 4 of 6"]`
-	idDigit5         = `[aria-label="digit 5 of 6"]`
-	idDigit6         = `[aria-label="digit 6 of 6"]`
+	idDigitN         = `[aria-label="digit %d of 6"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -45,6 +40,10 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	if err != nil {
 		return "", nil, err
 	}
+	if err := checkWorkspaceURL(wspURL); err != nil {
+		return "", nil, err
+	}
+
 	var opts options = options{
 		codeFn: SimpleChallengeFn,
 	}
@@ -181,8 +180,8 @@ func SimpleChallengeFn(email string) (int, error) {
 func enterCode(page *rod.Page, code int) error {
 	sCode := fmt.Sprintf("%06d", code)
 
-	elements := []string{idDigit1, idDigit2, idDigit3, idDigit4, idDigit5, idDigit6}
-	for i, id := range elements {
+	for i := 1; i <= 6; i++ {
+		id := fmt.Sprintf(idDigitN, i)
 		el, err := page.Element(id)
 		if err != nil {
 			return ErrBrowser{Err: err, FailedTo: "find digit input field"}
