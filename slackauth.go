@@ -137,6 +137,8 @@ func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.T
 	return ctx, cancel
 }
 
+// checkWorkspaceURL checks if the workspace exists.  Slack returns 200 on
+// existing workspaces and 404 on non-existing ones.
 func checkWorkspaceURL(uri string) error {
 	// quick status check
 	if resp, err := http.Head(uri); err != nil {
