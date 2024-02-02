@@ -4,7 +4,8 @@
 Slackauth is an experimental Slack authentication library using
 https://github.com/go-rod/rod[Rod] library.
 
-The advantage over the Playwright is that rod uses chromedp, which is faster
+The advantage over the Playwright is that rod utilises 
+https://chromedevtools.github.io/devtools-protocol/[CDP], which is faster
 and does not require nodejs.  The drawback is that it can't use Firefox.
 
 https://pkg.go.dev/github.com/rusq/slackauth[Go package documentation]
