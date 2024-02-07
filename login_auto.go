@@ -54,14 +54,14 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
 		Headless(isHeadless).
 		Devtools(false)
-	defer l.Cleanup()
 
-	url, err := l.Launch()
+	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
 	}
+	defer l.Cleanup()
 
-	var delay = 0 * time.Millisecond
+	var delay time.Duration = 0
 	if opts.debug {
 		delay = debugDelay
 	}

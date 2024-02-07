@@ -26,12 +26,12 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 		Headless(false).             // browser window must be visible
 		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
 		Devtools(false)
-	defer l.Cleanup()
 
-	url, err := l.Launch()
+	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
 	}
+	defer l.Cleanup()
 
 	browser := rod.New().Context(ctx).ControlURL(url)
 	if err := browser.Connect(); err != nil {
