@@ -17,9 +17,8 @@ type hijacker struct {
 }
 
 type creds struct {
-	Token   string
-	Cookies []*http.Cookie
-	Err     error
+	Token string
+	Err   error
 }
 
 func newHijacker(page *rod.Page) *hijacker {
@@ -28,12 +27,13 @@ func newHijacker(page *rod.Page) *hijacker {
 		credsC = make(chan creds, 1)
 		hj     = &hijacker{r: r, credsC: credsC}
 	)
+	// r.MustAdd(`*/api/drafts.list*`, func(h *rod.Hijack) {
 	r.MustAdd(`*/api/api.features*`, func(h *rod.Hijack) {
 		slog.Debug("hijack api.features")
 
 		r := h.Request.Req()
 
-		slog.Debug("request", "request", fmt.Sprintf("%#v", r))
+		slog.Info("request", "request", fmt.Sprintf("%#v", r))
 
 		token, err := extractToken(r)
 		if err != nil {
@@ -41,13 +41,7 @@ func newHijacker(page *rod.Page) *hijacker {
 			return
 		}
 
-		cookies := r.Cookies()
-		if err := h.LoadResponse(http.DefaultClient, true); err != nil {
-			credsC <- creds{Err: fmt.Errorf("error loading response: %v", err)}
-			return
-		}
-
-		credsC <- creds{Token: token, Cookies: cookies}
+		credsC <- creds{Token: token}
 	})
 	go r.Run()
 	return hj
@@ -63,12 +57,13 @@ func (h *hijacker) Stop() error {
 	return nil
 }
 
-func (h *hijacker) Wait(ctx context.Context) (string, []*http.Cookie, error) {
+// Wait waits for the hijacker to receive a token or an error.
+func (h *hijacker) Wait(ctx context.Context) (string, error) {
 	select {
 	case <-ctx.Done():
-		return "", nil, context.Cause(ctx)
+		return "", context.Cause(ctx)
 	case creds := <-h.credsC:
-		return creds.Token, creds.Cookies, creds.Err
+		return creds.Token, creds.Err
 	}
 }
 

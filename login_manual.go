@@ -54,9 +54,14 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	ctx, cancel := withTabGuard(ctx, browser, page.TargetID)
 	defer cancel(nil)
 
-	token, cookies, err := h.Wait(ctx)
+	token, err := h.Wait(ctx)
 	if err != nil {
 		return "", nil, err
 	}
+	cookies, err := extractCookies(browser)
+	if err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}
+	}
+
 	return token, cookies, nil
 }

@@ -157,11 +157,34 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID)
 	defer cancelCause(nil)
 
-	token, cookies, err := h.Wait(ctx)
+	token, err := h.Wait(ctx)
 	if err != nil {
 		return "", nil, err
 	}
+	cookies, err := extractCookies(browser)
+	if err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}
+	}
+
 	return token, cookies, nil
+}
+
+func extractCookies(browser *rod.Browser) ([]*http.Cookie, error) {
+	cook, err := browser.GetCookies()
+	if err != nil {
+		return nil, err
+	}
+	var cookies = make([]*http.Cookie, 0, len(cook))
+	for _, c := range cook {
+		cookies = append(cookies, &http.Cookie{
+			Name:    c.Name,
+			Value:   c.Value,
+			Domain:  c.Domain,
+			Path:    c.Path,
+			Expires: c.Expires.Time(),
+		})
+	}
+	return cookies, nil
 }
 
 // SimpleChallengeFn is a simple challenge function that reads a single
