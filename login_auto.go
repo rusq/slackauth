@@ -169,24 +169,6 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	return token, cookies, nil
 }
 
-func extractCookies(browser *rod.Browser) ([]*http.Cookie, error) {
-	cook, err := browser.GetCookies()
-	if err != nil {
-		return nil, err
-	}
-	var cookies = make([]*http.Cookie, 0, len(cook))
-	for _, c := range cook {
-		cookies = append(cookies, &http.Cookie{
-			Name:    c.Name,
-			Value:   c.Value,
-			Domain:  c.Domain,
-			Path:    c.Path,
-			Expires: c.Expires.Time(),
-		})
-	}
-	return cookies, nil
-}
-
 // SimpleChallengeFn is a simple challenge function that reads a single
 // integer from stdin.  It is used as a default challenge function when
 // none is provided.

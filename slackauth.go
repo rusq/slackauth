@@ -148,3 +148,36 @@ func checkWorkspaceURL(uri string) error {
 	}
 	return nil
 }
+
+// extractCookies extracts cookies from the browser and returns them as a
+// slice of http.Cookie.
+func extractCookies(browser *rod.Browser) ([]*http.Cookie, error) {
+	cook, err := browser.GetCookies()
+	if err != nil {
+		return nil, err
+	}
+	var cookies = make([]*http.Cookie, 0, len(cook))
+	for _, c := range cook {
+		sameSite, ok := sameSiteMap[c.SameSite]
+		if !ok {
+			sameSite = http.SameSiteNoneMode
+		}
+		cookies = append(cookies, &http.Cookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			Expires:  c.Expires.Time(),
+			Secure:   c.Secure,
+			HttpOnly: c.HTTPOnly,
+			SameSite: sameSite,
+		})
+	}
+	return cookies, nil
+}
+
+var sameSiteMap = map[proto.NetworkCookieSameSite]http.SameSite{
+	proto.NetworkCookieSameSiteNone:   http.SameSiteNoneMode,
+	proto.NetworkCookieSameSiteLax:    http.SameSiteLaxMode,
+	proto.NetworkCookieSameSiteStrict: http.SameSiteStrictMode,
+}
