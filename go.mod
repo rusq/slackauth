@@ -1,6 +1,6 @@
 module github.com/rusq/slackauth
 
-go 1.21.4
+go 1.21
 
 require (
 	github.com/go-rod/rod v0.114.7
