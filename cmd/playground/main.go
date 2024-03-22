@@ -19,7 +19,7 @@ var enableTrace = os.Getenv("DEBUG") == "1"
 var _ = godotenv.Load()
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	//browserLogin(ctx)

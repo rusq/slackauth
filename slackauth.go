@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -23,6 +22,7 @@ type options struct {
 	// it must return the user-entered code.
 	codeFn func(email string) (code int, err error)
 	debug  bool
+	lg     Logger
 }
 
 func (o *options) apply(opts []Option) {
@@ -49,6 +49,17 @@ func WithNoConsentPrompt() Option {
 func WithCookie(cookie ...*http.Cookie) Option {
 	return func(o *options) {
 		o.cookies = append(o.cookies, cookie...)
+	}
+}
+
+type Logger interface {
+	// Debug logs a debug message.
+	Debug(msg string, keyvals ...interface{})
+}
+
+func WithLogger(l Logger) Option {
+	return func(o *options) {
+		o.lg = l
 	}
 }
 
@@ -124,14 +135,14 @@ func workspaceURL(workspace string) (string, error) {
 
 // withTabGuard creates a context that is cancelled when the target is
 // destroyed.
-func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.TargetTargetID) (context.Context, context.CancelCauseFunc) {
+func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.TargetTargetID, l Logger) (context.Context, context.CancelCauseFunc) {
 	ctx, cancel := context.WithCancelCause(parent)
 	go browser.EachEvent(func(e *proto.TargetTargetDestroyed) {
 		if e.TargetID != targetID {
 			// skipping unrelated target (user opened pages)
 			return
 		}
-		slog.Debug("target destroyed", "target", e.TargetID)
+		l.Debug("target destroyed", "target", e.TargetID)
 		cancel(errors.New("target page is closed"))
 	})()
 	return ctx, cancel

@@ -2,6 +2,7 @@ package slackauth
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-rod/rod"
@@ -19,7 +20,9 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 		return "", nil, err
 	}
 
-	var opts options
+	var opts = options{
+		lg: slog.Default(),
+	}
 	opts.apply(opt)
 
 	l := launcher.New().
@@ -48,13 +51,13 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 		return "", nil, ErrBrowser{Err: err, FailedTo: "open page"}
 	}
 
-	h := newHijacker(page)
+	h := newHijacker(page, opts.lg)
 	defer h.Stop()
 
-	ctx, cancel := withTabGuard(ctx, browser, page.TargetID)
+	ctx, cancel := withTabGuard(ctx, browser, page.TargetID, opts.lg)
 	defer cancel(nil)
 
-	token, err := h.Wait(ctx)
+	token, err := h.Token(ctx)
 	if err != nil {
 		return "", nil, err
 	}

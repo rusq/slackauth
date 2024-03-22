@@ -46,6 +46,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 
 	var opts options = options{
 		codeFn: SimpleChallengeFn,
+		lg:     slog.Default(),
 	}
 	opts.apply(opt)
 
@@ -87,7 +88,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		return "", nil, ErrBrowser{Err: err, FailedTo: "open page"}
 	}
 
-	h := newHijacker(page)
+	h := newHijacker(page, opts.lg)
 	defer h.Stop()
 
 	// if there's no password element on the page, we must be on the "email
@@ -95,7 +96,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	if has, _, err := page.Has(idPassword); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "check for password field"}
 	} else if !has {
-		slog.Debug("switching to password login")
+		opts.lg.Debug("switching to password login")
 		el, err := page.Element(idPasswordLogin)
 		if err != nil {
 			return "", nil, ErrBrowser{Err: err, FailedTo: "find password login link"}
@@ -123,7 +124,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		}
 	}
 	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
-		slog.Debug("looks like some error occurred")
+		opts.lg.Debug("looks like some error occurred")
 		if has, _, err := page.Has(idPasswordError); err == nil && has {
 			el, err := page.Element(idSignInAlertText)
 			if err != nil {
@@ -137,7 +138,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		}
 		return ErrLoginError
 	}).Element(idUnknownBrowser).Handle(func(e *rod.Element) error {
-		slog.Debug("looks like we're on the unknown browser page")
+		opts.lg.Debug("looks like we're on the unknown browser page")
 		code, err := opts.codeFn(email)
 		if err != nil {
 			return fmt.Errorf("failed to get challenge code: %w", err)
@@ -154,10 +155,10 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	ctx, cancel := context.WithTimeoutCause(ctx, 30*time.Second, errors.New("login timeout"))
 	defer cancel()
 
-	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID)
+	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID, opts.lg)
 	defer cancelCause(nil)
 
-	token, err := h.Wait(ctx)
+	token, err := h.Token(ctx)
 	if err != nil {
 		return "", nil, err
 	}
