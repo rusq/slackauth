@@ -3,7 +3,6 @@ package slackauth
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-rod/rod"
@@ -14,6 +13,7 @@ import (
 type hijacker struct {
 	r      *rod.HijackRouter
 	credsC chan creds
+	lg     Logger
 }
 
 type creds struct {
@@ -21,19 +21,17 @@ type creds struct {
 	Err   error
 }
 
-func newHijacker(page *rod.Page) *hijacker {
+func newHijacker(page *rod.Page, lg Logger) *hijacker {
 	var (
 		r      = page.HijackRequests()
 		credsC = make(chan creds, 1)
-		hj     = &hijacker{r: r, credsC: credsC}
+		hj     = &hijacker{r: r, credsC: credsC, lg: lg}
 	)
-	// r.MustAdd(`*/api/drafts.list*`, func(h *rod.Hijack) {
+
 	r.MustAdd(`*/api/api.features*`, func(h *rod.Hijack) {
-		slog.Debug("hijack api.features")
+		lg.Debug("hijack api.features")
 
 		r := h.Request.Req()
-
-		slog.Info("request", "request", fmt.Sprintf("%#v", r))
 
 		token, err := extractToken(r)
 		if err != nil {
@@ -57,8 +55,8 @@ func (h *hijacker) Stop() error {
 	return nil
 }
 
-// Wait waits for the hijacker to receive a token or an error.
-func (h *hijacker) Wait(ctx context.Context) (string, error) {
+// Token waits for the hijacker to receive a token or an error.
+func (h *hijacker) Token(ctx context.Context) (string, error) {
 	select {
 	case <-ctx.Done():
 		return "", context.Cause(ctx)
