@@ -160,12 +160,11 @@ func checkWorkspaceURL(uri string) error {
 	return nil
 }
 
-// extractCookies extracts cookies from the browser and returns them as a
+// convertCookies extracts cookies from the browser and returns them as a
 // slice of http.Cookie.
-func extractCookies(browser *rod.Browser) ([]*http.Cookie, error) {
-	cook, err := browser.GetCookies()
+func convertCookies(cook []*proto.NetworkCookie, err error) ([]*http.Cookie, error) {
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("browser error: %w", err)
 	}
 	var cookies = make([]*http.Cookie, 0, len(cook))
 	for _, c := range cook {

@@ -67,7 +67,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		delay = debugDelay
 	}
 
-	var browser = rod.New().
+	browser := rod.New().
 		Context(ctx).
 		ControlURL(url).
 		Trace(opts.debug).
@@ -77,7 +77,6 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	if err := browser.Connect(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "connect"}
 	}
-	defer browser.Close()
 
 	if err := setCookies(browser, opts.cookies); err != nil {
 		return "", nil, err
@@ -93,9 +92,9 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 
 	// if there's no password element on the page, we must be on the "email
 	// login" page.  We need to switch away to the password login.
-	if has, _, err := page.Has(idPassword); err != nil {
+	if hasPwdField, _, err := page.Has(idPassword); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "check for password field"}
-	} else if !has {
+	} else if !hasPwdField {
 		opts.lg.Debug("switching to password login")
 		el, err := page.Element(idPasswordLogin)
 		if err != nil {
@@ -143,7 +142,8 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		if err != nil {
 			return fmt.Errorf("failed to get challenge code: %w", err)
 		}
-		if err := enterCode(page, code); err != nil {
+		wrapped := (*pageWrapper)(page)
+		if err := enterCode(wrapped, code); err != nil {
 			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
 		}
 		return nil
@@ -162,7 +162,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	if err != nil {
 		return "", nil, err
 	}
-	cookies, err := extractCookies(browser)
+	cookies, err := convertCookies(browser.GetCookies())
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}
 	}
@@ -183,18 +183,24 @@ func SimpleChallengeFn(email string) (int, error) {
 	return code, nil
 }
 
-func enterCode(page *rod.Page, code int) error {
-	sCode := fmt.Sprintf("%06d", code)
+const codeLen = 6
 
-	for i := 1; i <= 6; i++ {
+func enterCode(page elementer, code int) error {
+	if code > 999999 || code < 0 {
+		return fmt.Errorf("code must be a 6-digit number, got %d", code)
+	}
+	sCode := fmt.Sprintf("%0*d", codeLen, code)
+
+	for i := 1; i <= codeLen; i++ {
 		id := fmt.Sprintf(idDigitN, i)
 		el, err := page.Element(id)
 		if err != nil {
 			return ErrBrowser{Err: err, FailedTo: "find digit input field"}
 		}
-		if err := el.Input(string(sCode[i])); err != nil {
+		if err := el.Input(string(sCode[i-1])); err != nil {
 			return ErrBrowser{Err: err, FailedTo: "fill in digit input field"}
 		}
 	}
+
 	return nil
 }
