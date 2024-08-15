@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -16,33 +17,37 @@ type hijacker struct {
 	lg     Logger
 }
 
+// creds holds token and an error, and is communicated through the credsC
+// channel of the hijacker.
 type creds struct {
 	Token string
 	Err   error
 }
 
 func newHijacker(page *rod.Page, lg Logger) *hijacker {
-	var (
-		r      = page.HijackRequests()
-		credsC = make(chan creds, 1)
-		hj     = &hijacker{r: r, credsC: credsC, lg: lg}
-	)
+	hj := &hijacker{
+		r:      page.HijackRequests(),
+		credsC: make(chan creds, 1),
+		lg:     lg,
+	}
 
-	r.MustAdd(`*/api/api.features*`, func(h *rod.Hijack) {
-		lg.Debug("hijack api.features")
-
-		r := h.Request.Req()
-
-		token, err := extractToken(r)
-		if err != nil {
-			credsC <- creds{Err: fmt.Errorf("error parsing token out of request: %v", err)}
-			return
-		}
-
-		credsC <- creds{Token: token}
-	})
-	go r.Run()
+	hj.r.MustAdd(`*/api/api.features*`, hj.hook)
+	go hj.r.Run()
 	return hj
+}
+
+func (hj *hijacker) hook(h *rod.Hijack) {
+	hj.lg.Debug("hijack api.features")
+
+	r := h.Request.Req()
+
+	token, err := extractToken(r)
+	if err != nil {
+		hj.credsC <- creds{Err: fmt.Errorf("error parsing token out of request: %v", err)}
+		return
+	}
+
+	hj.credsC <- creds{Token: token}
 }
 
 func (h *hijacker) Stop() error {
@@ -86,7 +91,11 @@ const (
 
 func extractToken(r *http.Request) (string, error) {
 	if err := r.ParseMultipartForm(maxMem); err != nil {
-		return "", err
+		return "", fmt.Errorf("error parsing request: %w", err)
+	}
+	tok := strings.TrimSpace(r.Form.Get(paramToken))
+	if len(tok) == 0 {
+		return "", fmt.Errorf("token not found in the form request")
 	}
 	return r.Form.Get(paramToken), nil
 }

@@ -61,7 +61,7 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	if err != nil {
 		return "", nil, err
 	}
-	cookies, err := extractCookies(browser)
+	cookies, err := convertCookies(browser.GetCookies())
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}
 	}
