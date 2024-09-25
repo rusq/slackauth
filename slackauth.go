@@ -18,8 +18,9 @@ type Option func(*options)
 type options struct {
 	cookies []*http.Cookie
 
-	// codeFn is the function that is called when slack does not recognise the browser and challenges the user with a code sent to email.
-	// it must return the user-entered code.
+	// codeFn is the function that is called when slack does not recognise the
+	// browser and challenges the user with a code sent to email.  it must
+	// return the user-entered code.
 	codeFn func(email string) (code int, err error)
 	debug  bool
 	lg     Logger
