@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -51,11 +50,8 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	opts.apply(opt)
 
 	isHeadless := !opts.debug
-	l := launcher.New().
-		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
-		Headless(isHeadless).
-		Devtools(false)
 
+	l := browserLauncher(isHeadless)
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
