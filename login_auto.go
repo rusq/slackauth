@@ -147,7 +147,11 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
 		}
 		return nil
-	}).Element(idRedirect) // success
+	}).Element(idRedirect).Handle(func(e *rod.Element) error {
+		opts.lg.Debug("looks like we're on the redirect page")
+		page.Navigate(wspURL)
+		return nil
+	}) // success
 	if _, err := rctx.Do(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
 	}
