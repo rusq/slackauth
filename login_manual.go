@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -25,11 +24,7 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	}
 	opts.apply(opt)
 
-	l := launcher.New().
-		Headless(false).             // browser window must be visible
-		Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
-		Devtools(false)
-
+	l := browserLauncher(false)
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
