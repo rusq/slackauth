@@ -21,7 +21,9 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies []*http.Cookie
+	cookies       []*http.Cookie
+	userAgent     string
+	userAgentAuto bool
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
@@ -55,6 +57,20 @@ func WithNoConsentPrompt() Option {
 func WithCookie(cookie ...*http.Cookie) Option {
 	return func(o *options) {
 		o.cookies = append(o.cookies, cookie...)
+	}
+}
+
+// WithUserAgent sets the user agent for the session.
+func WithUserAgent(ua string) Option {
+	return func(o *options) {
+		o.userAgent = ua
+	}
+}
+
+// WithUserAgentAuto sets the user agent to a default value.
+func WithUserAgentAuto() Option {
+	return func(o *options) {
+		o.userAgent = defaultUserAgent
 	}
 }
 
