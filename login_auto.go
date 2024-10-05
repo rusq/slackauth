@@ -83,6 +83,11 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		return "", nil, ErrBrowser{Err: err, FailedTo: "open page"}
 	}
 
+	// patch the user agent if needed
+	if err := opts.setUserAgent(page); err != nil {
+		return "", nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
+	}
+
 	h := newHijacker(page, opts.lg)
 	defer h.Stop()
 
@@ -145,8 +150,7 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 		return nil
 	}).Element(idRedirect).Handle(func(e *rod.Element) error {
 		opts.lg.Debug("looks like we're on the redirect page")
-		page.Navigate(wspURL)
-		return nil
+		return page.Navigate(wspURL)
 	}) // success
 	if _, err := rctx.Do(); err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
