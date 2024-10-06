@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -34,132 +33,39 @@ const (
 // Headless logs the user in headlessly, without opening the browser UI.  It
 // is only suitable for user/email login method, as it does not require any
 // additional user interaction.
+//
+// Deprecated: Use [Client.Headless] instead.
 func Headless(ctx context.Context, workspace, email, password string, opt ...Option) (string, []*http.Cookie, error) {
-	wspURL, err := workspaceURL(workspace)
+	c, err := New(workspace, opt...)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := checkWorkspaceURL(wspURL); err != nil {
+	defer c.Close()
+	return c.Headless(ctx, email, password)
+}
+
+func (c *Client) Headless(ctx context.Context, email, password string) (string, []*http.Cookie, error) {
+	browser, err := c.startPuppet(ctx, !c.opts.debug)
+	if err != nil {
 		return "", nil, err
 	}
 
-	var opts options = options{
-		codeFn: SimpleChallengeFn,
-		lg:     slog.Default(),
-	}
-	opts.apply(opt)
-
-	isHeadless := !opts.debug
-
-	l := browserLauncher(isHeadless)
-	url, err := l.Context(ctx).Launch()
+	page, err := c.navigate(browser)
 	if err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "launch"}
-	}
-	defer l.Cleanup()
-
-	var delay time.Duration = 0
-	if opts.debug {
-		delay = debugDelay
-	}
-
-	browser := rod.New().
-		Context(ctx).
-		ControlURL(url).
-		Trace(opts.debug).
-		SlowMotion(delay)
-	defer browser.Close()
-
-	if err := browser.Connect(); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "connect"}
-	}
-
-	if err := setCookies(browser, opts.cookies); err != nil {
 		return "", nil, err
 	}
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: wspURL})
-	if err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "open page"}
+	h := newHijacker(page, c.opts.lg)
+	c.atClose(h.Stop)
+
+	if err := c.doAutoLogin(page, email, password); err != nil {
+		return "", nil, err
 	}
 
-	// patch the user agent if needed
-	if err := opts.setUserAgent(page); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
-	}
-
-	h := newHijacker(page, opts.lg)
-	defer h.Stop()
-
-	// if there's no password element on the page, we must be on the "email
-	// login" page.  We need to switch away to the password login.
-	if hasPwdField, _, err := page.Has(idPassword); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "check for password field"}
-	} else if !hasPwdField {
-		opts.lg.Debug("switching to password login")
-		el, err := page.Element(idPasswordLogin)
-		if err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "find password login link"}
-		}
-		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "click password login link"}
-		}
-	}
-	// fill in email and password fields.
-	if fldEmail, err := page.Element(idEmail); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "find email field"}
-	} else {
-		if err := fldEmail.Input(email); err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "fill in email field"}
-		}
-	}
-	if fldPwd, err := page.Element(idPassword); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "find password field"}
-	} else {
-		if err := fldPwd.Input(password); err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "fill in password field"}
-		}
-		if err := fldPwd.Type(input.Enter); err != nil {
-			return "", nil, ErrBrowser{Err: err, FailedTo: "submit login form"}
-		}
-	}
-	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
-		opts.lg.Debug("looks like some error occurred")
-		if has, _, err := page.Has(idPasswordError); err == nil && has {
-			el, err := page.Element(idSignInAlertText)
-			if err != nil {
-				return ErrInvalidCredentials
-			}
-			txt, err := el.Text()
-			if err != nil {
-				return ErrInvalidCredentials
-			}
-			return fmt.Errorf("%w, slack message: [%s]", ErrInvalidCredentials, txt)
-		}
-		return ErrLoginError
-	}).Element(idUnknownBrowser).Handle(func(e *rod.Element) error {
-		opts.lg.Debug("looks like we're on the unknown browser page")
-		code, err := opts.codeFn(email)
-		if err != nil {
-			return fmt.Errorf("failed to get challenge code: %w", err)
-		}
-		wrapped := (*pageWrapper)(page)
-		if err := enterCode(wrapped, code); err != nil {
-			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
-		}
-		return nil
-	}).Element(idRedirect).Handle(func(e *rod.Element) error {
-		opts.lg.Debug("looks like we're on the redirect page")
-		return page.Navigate(wspURL)
-	}) // success
-	if _, err := rctx.Do(); err != nil {
-		return "", nil, ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
-	}
-
-	ctx, cancel := context.WithTimeoutCause(ctx, 30*time.Second, errors.New("login timeout"))
+	ctx, cancel := context.WithTimeoutCause(ctx, c.opts.autoTimeout, errors.New("login timeout"))
 	defer cancel()
 
-	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID, opts.lg)
+	ctx, cancelCause := withTabGuard(ctx, browser, page.TargetID, c.opts.lg)
 	defer cancelCause(nil)
 
 	token, err := h.Token(ctx)
@@ -206,5 +112,101 @@ func enterCode(page elementer, code int) error {
 		}
 	}
 
+	return nil
+}
+
+func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, error) {
+	l := browserLauncher(headless)
+
+	url, err := l.Context(ctx).Launch()
+	if err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
+	}
+	c.atClose(toerrfn(l.Cleanup))
+
+	var delay time.Duration = 0
+	if c.opts.debug {
+		delay = debugDelay
+	}
+
+	browser := rod.New().
+		Context(ctx).
+		ControlURL(url).
+		Trace(c.opts.debug).
+		SlowMotion(delay)
+	c.atClose(browser.Close)
+
+	if err := browser.Connect(); err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "connect"}
+	}
+
+	return browser, nil
+}
+
+func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
+	// if there's no password element on the page, we must be on the "email
+	// login" page.  We need to switch away to the password login.
+	if hasPwdField, _, err := page.Has(idPassword); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "check for password field"}
+	} else if !hasPwdField {
+		c.opts.lg.Debug("switching to password login")
+		el, err := page.Element(idPasswordLogin)
+		if err != nil {
+			return ErrBrowser{Err: err, FailedTo: "find password login link"}
+		}
+		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "click password login link"}
+		}
+	}
+	// fill in email and password fields.
+	if fldEmail, err := page.Element(idEmail); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "find email field"}
+	} else {
+		if err := fldEmail.Input(email); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "fill in email field"}
+		}
+	}
+	if fldPwd, err := page.Element(idPassword); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "find password field"}
+	} else {
+		if err := fldPwd.Input(password); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "fill in password field"}
+		}
+		if err := fldPwd.Type(input.Enter); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "submit login form"}
+		}
+	}
+	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
+		c.opts.lg.Debug("looks like some error occurred")
+		if has, _, err := page.Has(idPasswordError); err == nil && has {
+			el, err := page.Element(idSignInAlertText)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			txt, err := el.Text()
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			return fmt.Errorf("%w, slack message: [%s]", ErrInvalidCredentials, txt)
+		}
+		return ErrLoginError
+	}).Element(idUnknownBrowser).Handle(func(e *rod.Element) error {
+		c.opts.lg.Debug("looks like we're on the unknown browser page")
+		code, err := c.opts.codeFn(email)
+		if err != nil {
+			return fmt.Errorf("failed to get challenge code: %w", err)
+		}
+		wrapped := (*pageWrapper)(page)
+		if err := enterCode(wrapped, code); err != nil {
+			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
+		}
+		return nil
+	}).Element(idRedirect).Handle(func(e *rod.Element) error {
+		c.opts.lg.Debug("looks like we're on the redirect page")
+		return page.Navigate(c.wspURL)
+	}) // success
+	if _, err := rctx.Do(); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
+	}
 	return nil
 }

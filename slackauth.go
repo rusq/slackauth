@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -16,8 +18,9 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies   []*http.Cookie
-	userAgent string
+	cookies     []*http.Cookie
+	userAgent   string
+	autoTimeout time.Duration
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
@@ -68,9 +71,46 @@ func WithUserAgentAuto() Option {
 	}
 }
 
-type Logger interface {
-	// Debug logs a debug message.
-	Debug(msg string, keyvals ...interface{})
+// Client is a Slackauth client.
+type Client struct {
+	wspURL    string
+	cleanupFn []func() error
+	opts      options
+}
+
+// New creates a new Slackauth client.
+func New(workspace string, opt ...Option) (*Client, error) {
+	wspURL, err := workspaceURL(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWorkspaceURL(wspURL); err != nil {
+		return nil, err
+	}
+
+	opts := options{
+		lg:          slog.Default(),
+		userAgent:   defaultUserAgent,
+		codeFn:      SimpleChallengeFn,
+		autoTimeout: 40 * time.Second, // default auto-login timeout
+	}
+	opts.apply(opt)
+
+	return &Client{
+		wspURL: wspURL,
+		opts:   opts,
+	}, nil
+}
+
+func (c *Client) Close() error {
+	var errs error
+	slices.Reverse(c.cleanupFn)
+	for _, fn := range c.cleanupFn {
+		if err := fn(); err != nil {
+			errs = errors.Join(err, err)
+		}
+	}
+	return errs
 }
 
 func WithLogger(l Logger) Option {
@@ -94,6 +134,14 @@ func WithChallengeFunc(fn func(email string) (code int, err error)) Option {
 func WithDebug(b bool) Option {
 	return func(o *options) {
 		o.debug = b
+	}
+}
+
+func WithAutologinTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.autoTimeout = d
+		}
 	}
 }
 
@@ -124,6 +172,12 @@ type ErrBrowser struct {
 
 func (e ErrBrowser) Error() string {
 	return fmt.Sprintf("browser automation error: failed to %s: %v", e.FailedTo, e.Err)
+}
+
+// Logger is the interface for the logger.
+type Logger interface {
+	// Debug logs a debug message.
+	Debug(msg string, keyvals ...interface{})
 }
 
 func isURLSafe(s string) bool {
@@ -206,4 +260,50 @@ var sameSiteMap = map[proto.NetworkCookieSameSite]http.SameSite{
 	proto.NetworkCookieSameSiteNone:   http.SameSiteNoneMode,
 	proto.NetworkCookieSameSiteLax:    http.SameSiteLaxMode,
 	proto.NetworkCookieSameSiteStrict: http.SameSiteStrictMode,
+}
+
+func (c *Client) atClose(fn func() error) {
+	c.cleanupFn = append(c.cleanupFn, fn)
+}
+
+func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
+	l := browserLauncher(false)
+
+	url, err := l.Context(ctx).Launch()
+	if err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
+	}
+	c.atClose(toerrfn(l.Cleanup))
+
+	browser := rod.New().Context(ctx).ControlURL(url)
+	if err := browser.Connect(); err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "connect"}
+	}
+	c.atClose(browser.Close)
+	return browser, nil
+}
+
+func (c *Client) navigate(browser *rod.Browser) (*rod.Page, error) {
+	if err := setCookies(browser, c.opts.cookies); err != nil {
+		return nil, err
+	}
+
+	page, err := browser.Page(proto.TargetCreateTarget{URL: c.wspURL})
+	if err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "open page"}
+	}
+
+	// patch the user agent if needed
+	if err := c.opts.setUserAgent(page); err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
+	}
+
+	return page, nil
+}
+
+func toerrfn(fn func()) func() error {
+	return func() error {
+		fn()
+		return nil
+	}
 }

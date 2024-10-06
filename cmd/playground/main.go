@@ -57,12 +57,14 @@ func autoLogin(ctx context.Context) {
 	username := envOrScan("EMAIL", "Enter email: ")
 	password := envOrScan("PASSWORD", "Enter password: ")
 
+	start := time.Now()
 	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(enableTrace), slackauth.WithNoConsentPrompt(), slackauth.WithUserAgentAuto())
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println(token)
 	fmt.Println(cookies)
+	fmt.Println("login took:", time.Since(start))
 }
 
 func envOrScan(env, prompt string) string {
