@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/devices"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -85,7 +86,6 @@ func New(workspace string, opt ...Option) (*Client, error) {
 
 	opts := options{
 		lg:          slog.Default(),
-		userAgent:   DefaultUserAgent,
 		codeFn:      SimpleChallengeFn,
 		autoTimeout: 40 * time.Second, // default auto-login timeout
 	}
@@ -263,7 +263,6 @@ func (c *Client) atClose(fn func() error) {
 
 func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
 	l := browserLauncher(false)
-
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
@@ -274,16 +273,17 @@ func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
 	if err := browser.Connect(); err != nil {
 		return nil, ErrBrowser{Err: err, FailedTo: "connect"}
 	}
+	browser.DefaultDevice(devices.Clear)
 	c.atClose(browser.Close)
 	return browser, nil
 }
 
-func (c *Client) navigate(browser *rod.Browser) (*rod.Page, error) {
-	if err := setCookies(browser, c.opts.cookies); err != nil {
+func (c *Client) navigate(b *rod.Browser) (*rod.Page, error) {
+	if err := setCookies(b, c.opts.cookies); err != nil {
 		return nil, err
 	}
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: c.wspURL})
+	page, err := b.Page(proto.TargetCreateTarget{URL: c.wspURL})
 	if err != nil {
 		return nil, ErrBrowser{Err: err, FailedTo: "open page"}
 	}

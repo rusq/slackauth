@@ -16,14 +16,16 @@ import (
 func browserLauncher(headless bool) *launcher.Launcher {
 	var l *launcher.Launcher
 	if binpath, ok := lookPath(); ok {
-		l = launcher.New().
+		l = launcher.NewUserMode().
 			Bin(binpath).
 			Headless(headless).
-			Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
+			Leakless(isLeaklessEnabled).
 			Devtools(false)
 	} else {
+		// for headless mode we don't care about being in User Mode, because
+		// we target the email/pasword login method.
 		l = launcher.New().
-			Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
+			Leakless(isLeaklessEnabled).
 			Headless(headless).
 			Devtools(false)
 	}
