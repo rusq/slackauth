@@ -21,9 +21,8 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies       []*http.Cookie
-	userAgent     string
-	userAgentAuto bool
+	cookies   []*http.Cookie
+	userAgent string
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
