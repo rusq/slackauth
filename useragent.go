@@ -11,7 +11,7 @@ var (
 	defaultChromeVersion = "129.0.0.0"
 	defaultWebkitVersion = "537.36"
 
-	defaultUserAgent = UserAgent(defaultWebkitVersion, defaultChromeVersion, "")
+	DefaultUserAgent = UserAgent(defaultWebkitVersion, defaultChromeVersion, "")
 )
 
 //go:generate mockgen -destination=useragent_mock_test.go -package=slackauth -source=useragent.go userAgentSetter

@@ -41,7 +41,7 @@ func browserLogin(ctx context.Context) {
 	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
 	defer cancel()
 
-	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt(), slackauth.WithUserAgentAuto())
+	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func autoLogin(ctx context.Context) {
 	password := envOrScan("PASSWORD", "Enter password: ")
 
 	start := time.Now()
-	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(enableTrace), slackauth.WithNoConsentPrompt(), slackauth.WithUserAgentAuto())
+	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(enableTrace), slackauth.WithNoConsentPrompt())
 	if err != nil {
 		log.Fatal(err)
 	}

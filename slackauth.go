@@ -64,13 +64,6 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
-// WithUserAgentAuto sets the user agent to a default value.
-func WithUserAgentAuto() Option {
-	return func(o *options) {
-		o.userAgent = defaultUserAgent
-	}
-}
-
 // Client is a Slackauth client.
 type Client struct {
 	wspURL    string
@@ -90,7 +83,7 @@ func New(workspace string, opt ...Option) (*Client, error) {
 
 	opts := options{
 		lg:          slog.Default(),
-		userAgent:   defaultUserAgent,
+		userAgent:   DefaultUserAgent,
 		codeFn:      SimpleChallengeFn,
 		autoTimeout: 40 * time.Second, // default auto-login timeout
 	}
