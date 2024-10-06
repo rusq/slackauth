@@ -95,6 +95,7 @@ func SimpleChallengeFn(email string) (int, error) {
 
 const codeLen = 6
 
+// enterCode enters the 6-digit code into the challenge code input fields.
 func enterCode(page elementer, code int) error {
 	if code > 999999 || code < 0 {
 		return fmt.Errorf("code must be a 6-digit number, got %d", code)
@@ -115,6 +116,7 @@ func enterCode(page elementer, code int) error {
 	return nil
 }
 
+// startPuppet starts a new browser instance and returns a handle to it.
 func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, error) {
 	l := browserLauncher(headless)
 
@@ -143,6 +145,8 @@ func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, 
 	return browser, nil
 }
 
+// doAutoLogin performs the login process on the given page. It expects the
+// page to point to the Slack workspace login page.
 func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
 	// if there's no password element on the page, we must be on the "email
 	// login" page.  We need to switch away to the password login.

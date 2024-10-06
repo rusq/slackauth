@@ -23,6 +23,7 @@ func Manual(ctx context.Context, workspace string, opt ...Option) (string, []*ht
 	return c.Manual(ctx)
 }
 
+// Manual initiates a login flow in a browser (manual login).
 func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	browser, err := c.startBrowser(ctx)
 	if err != nil {
