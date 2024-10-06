@@ -4,15 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
+	"slices"
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -21,9 +18,9 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies       []*http.Cookie
-	userAgent     string
-	userAgentAuto bool
+	cookies     []*http.Cookie
+	userAgent   string
+	autoTimeout time.Duration
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
@@ -67,16 +64,46 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
-// WithUserAgentAuto sets the user agent to a default value.
-func WithUserAgentAuto() Option {
-	return func(o *options) {
-		o.userAgent = defaultUserAgent
-	}
+// Client is a Slackauth client.
+type Client struct {
+	wspURL    string
+	cleanupFn []func() error
+	opts      options
 }
 
-type Logger interface {
-	// Debug logs a debug message.
-	Debug(msg string, keyvals ...interface{})
+// New creates a new Slackauth client.
+func New(workspace string, opt ...Option) (*Client, error) {
+	wspURL, err := workspaceURL(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWorkspaceURL(wspURL); err != nil {
+		return nil, err
+	}
+
+	opts := options{
+		lg:          slog.Default(),
+		userAgent:   DefaultUserAgent,
+		codeFn:      SimpleChallengeFn,
+		autoTimeout: 40 * time.Second, // default auto-login timeout
+	}
+	opts.apply(opt)
+
+	return &Client{
+		wspURL: wspURL,
+		opts:   opts,
+	}, nil
+}
+
+func (c *Client) Close() error {
+	var errs error
+	slices.Reverse(c.cleanupFn)
+	for _, fn := range c.cleanupFn {
+		if err := fn(); err != nil {
+			errs = errors.Join(err, err)
+		}
+	}
+	return errs
 }
 
 func WithLogger(l Logger) Option {
@@ -100,6 +127,14 @@ func WithChallengeFunc(fn func(email string) (code int, err error)) Option {
 func WithDebug(b bool) Option {
 	return func(o *options) {
 		o.debug = b
+	}
+}
+
+func WithAutologinTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.autoTimeout = d
+		}
 	}
 }
 
@@ -130,6 +165,12 @@ type ErrBrowser struct {
 
 func (e ErrBrowser) Error() string {
 	return fmt.Sprintf("browser automation error: failed to %s: %v", e.FailedTo, e.Err)
+}
+
+// Logger is the interface for the logger.
+type Logger interface {
+	// Debug logs a debug message.
+	Debug(msg string, keyvals ...interface{})
 }
 
 func isURLSafe(s string) bool {
@@ -214,94 +255,48 @@ var sameSiteMap = map[proto.NetworkCookieSameSite]http.SameSite{
 	proto.NetworkCookieSameSiteStrict: http.SameSiteStrictMode,
 }
 
-func browserLauncher(headless bool) *launcher.Launcher {
-	var l *launcher.Launcher
-	if binpath, ok := lookPath(); ok {
-		l = launcher.New().
-			Bin(binpath).
-			Headless(headless).
-			Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
-			Devtools(false)
-	} else {
-		l = launcher.New().
-			Leakless(isLeaklessEnabled). // Causes false positive on Windows, see #260
-			Headless(headless).
-			Devtools(false)
-	}
-	return l
+func (c *Client) atClose(fn func() error) {
+	c.cleanupFn = append(c.cleanupFn, fn)
 }
 
-// lookPath is extended launcher.LookPath that includes support for Brave
-// browser.
-//
-// (c) MIT license: Copyright 2019 Yad Smood
-func lookPath() (found string, has bool) {
-	list := map[string][]string{
-		"darwin": {
-			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-			"/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-			"/usr/bin/google-chrome-stable",
-			"/usr/bin/google-chrome",
-			"/usr/bin/chromium",
-			"/usr/bin/chromium-browser",
-		},
-		"linux": {
-			"brave-browser",
-			"chrome",
-			"google-chrome",
-			"/usr/bin/brave-browser",
-			"/usr/bin/google-chrome",
-			"microsoft-edge",
-			"/usr/bin/microsoft-edge",
-			"chromium",
-			"chromium-browser",
-			"/usr/bin/google-chrome-stable",
-			"/usr/bin/chromium",
-			"/usr/bin/chromium-browser",
-			"/snap/bin/chromium",
-			"/data/data/com.termux/files/usr/bin/chromium-browser",
-		},
-		"openbsd": {
-			"chrome",
-			"chromium",
-		},
-		"windows": append([]string{"chrome", "edge"}, expandWindowsExePaths(
-			`BraveSoftware\Brave-Browser\Application\brave.exe`,
-			`Google\Chrome\Application\chrome.exe`,
-			`Chromium\Application\chrome.exe`,
-			`Microsoft\Edge\Application\msedge.exe`,
-		)...),
-	}[runtime.GOOS]
+func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
+	l := browserLauncher(false)
 
-	for _, path := range list {
-		var err error
-		found, err = exec.LookPath(path)
-		has = err == nil
-		if has {
-			break
-		}
+	url, err := l.Context(ctx).Launch()
+	if err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
 	}
+	c.atClose(toerrfn(l.Cleanup))
 
-	return
+	browser := rod.New().Context(ctx).ControlURL(url)
+	if err := browser.Connect(); err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "connect"}
+	}
+	c.atClose(browser.Close)
+	return browser, nil
 }
 
-// expandWindowsExePaths is a verbatim copy of the function from rod's
-// browser.go.
-//
-// (c) MIT license: Copyright 2019 Yad Smood
-func expandWindowsExePaths(list ...string) []string {
-	newList := []string{}
-	for _, p := range list {
-		newList = append(
-			newList,
-			filepath.Join(os.Getenv("ProgramFiles"), p),
-			filepath.Join(os.Getenv("ProgramFiles(x86)"), p),
-			filepath.Join(os.Getenv("LocalAppData"), p),
-		)
+func (c *Client) navigate(browser *rod.Browser) (*rod.Page, error) {
+	if err := setCookies(browser, c.opts.cookies); err != nil {
+		return nil, err
 	}
 
-	return newList
+	page, err := browser.Page(proto.TargetCreateTarget{URL: c.wspURL})
+	if err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "open page"}
+	}
+
+	// patch the user agent if needed
+	if err := c.opts.setUserAgent(page); err != nil {
+		return nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
+	}
+
+	return page, nil
+}
+
+func toerrfn(fn func()) func() error {
+	return func() error {
+		fn()
+		return nil
+	}
 }
