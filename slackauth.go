@@ -60,7 +60,9 @@ func WithCookie(cookie ...*http.Cookie) Option {
 // WithUserAgent sets the user agent for the session.
 func WithUserAgent(ua string) Option {
 	return func(o *options) {
-		o.userAgent = ua
+		if ua != "" {
+			o.userAgent = ua
+		}
 	}
 }
 
