@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 )
 
 // hijacker is a helper for hijacking requests.
@@ -68,20 +67,6 @@ func (h *hijacker) Token(ctx context.Context) (string, error) {
 	case creds := <-h.credsC:
 		return creds.Token, creds.Err
 	}
-}
-
-func setCookies(browser *rod.Browser, cookies []*http.Cookie) error {
-	if len(cookies) == 0 {
-		return nil
-	}
-	for _, c := range cookies {
-		if err := browser.SetCookies([]*proto.NetworkCookieParam{
-			{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Expires: proto.TimeSinceEpoch(c.Expires.Unix())},
-		}); err != nil {
-			return fmt.Errorf("failed to set cookies: %w", err)
-		}
-	}
-	return nil
 }
 
 const (

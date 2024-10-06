@@ -2,6 +2,7 @@ package slackauth
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -66,4 +67,18 @@ func Browser(ctx context.Context, workspace string, opt ...Option) (string, []*h
 	}
 
 	return token, cookies, nil
+}
+
+func setCookies(browser *rod.Browser, cookies []*http.Cookie) error {
+	if len(cookies) == 0 {
+		return nil
+	}
+	for _, c := range cookies {
+		if err := browser.SetCookies([]*proto.NetworkCookieParam{
+			{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Expires: proto.TimeSinceEpoch(c.Expires.Unix())},
+		}); err != nil {
+			return fmt.Errorf("failed to set cookies: %w", err)
+		}
+	}
+	return nil
 }

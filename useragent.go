@@ -14,7 +14,7 @@ var (
 	defaultUserAgent = UserAgent(defaultWebkitVersion, defaultChromeVersion, "")
 )
 
-//go:generate mockgen -destination=useragent_mocks_test.go -package=slackauth -source=useragent.go userAgentSetter
+//go:generate mockgen -destination=useragent_mock_test.go -package=slackauth -source=useragent.go userAgentSetter
 type userAgentSetter interface {
 	SetUserAgent(req *proto.NetworkSetUserAgentOverride) error
 }

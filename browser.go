@@ -1,12 +1,16 @@
 package slackauth
 
 import (
+	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 
+	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 func browserLauncher(headless bool) *launcher.Launcher {
@@ -99,4 +103,18 @@ func expandWindowsExePaths(list ...string) []string {
 	}
 
 	return newList
+}
+
+func setCookies(browser *rod.Browser, cookies []*http.Cookie) error {
+	if len(cookies) == 0 {
+		return nil
+	}
+	for _, c := range cookies {
+		if err := browser.SetCookies([]*proto.NetworkCookieParam{
+			{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Expires: proto.TimeSinceEpoch(c.Expires.Unix())},
+		}); err != nil {
+			return fmt.Errorf("failed to set cookies: %w", err)
+		}
+	}
+	return nil
 }
