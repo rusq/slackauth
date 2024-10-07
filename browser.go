@@ -70,10 +70,10 @@ func lookPath() (found string, has bool) {
 			"chromium",
 		},
 		"windows": append([]string{"chrome", "edge"}, expandWindowsExePaths(
+			`Microsoft\Edge\Application\msedge.exe`,
 			`BraveSoftware\Brave-Browser\Application\brave.exe`,
 			`Google\Chrome\Application\chrome.exe`,
 			`Chromium\Application\chrome.exe`,
-			`Microsoft\Edge\Application\msedge.exe`,
 		)...),
 	}[runtime.GOOS]
 
