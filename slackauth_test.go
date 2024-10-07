@@ -3,6 +3,7 @@ package slackauth
 import (
 	"net/http"
 	"net/http/httptest"
+	reflect "reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,43 @@ func Test_isURLSafe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isURLSafe(tt.args.s); got != tt.want {
 				t.Errorf("isURLSafe() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_filterCookies(t *testing.T) {
+	type args struct {
+		cookies []*http.Cookie
+	}
+	tests := []struct {
+		name string
+		args args
+		want []*http.Cookie
+	}{
+		{
+			name: "Retains valid domains",
+			args: args{
+				cookies: []*http.Cookie{
+					{Domain: ".slack.com"},
+					{Domain: ".example.com"},
+					{Domain: ".google.co.nz"},
+					{Domain: ".google.com.au"},
+					{Domain: ".endlessefforts.onelogin.com"},
+				},
+			},
+			want: []*http.Cookie{
+				{Domain: ".slack.com"},
+				{Domain: ".google.co.nz"},
+				{Domain: ".google.com.au"},
+				{Domain: ".endlessefforts.onelogin.com"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := filterCookies(tt.args.cookies); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("filterCookies() = %v, want %v", got, tt.want)
 			}
 		})
 	}

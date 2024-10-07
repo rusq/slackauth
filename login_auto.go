@@ -8,11 +8,14 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/devices"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
 )
 
 const (
+	pathPwdSignin = "sign_in_with_password"
+
 	idPasswordLogin = `[data-qa="sign_in_password_link"]`
 
 	idPassword = "#password"
@@ -26,6 +29,8 @@ const (
 
 	idUnknownBrowser = `#enter_code_app_root`
 	idDigitN         = `[aria-label="digit %d of 6"]`
+
+	idClientLoaded = `[data-qa="tab_rail_home_button"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -50,13 +55,10 @@ func (c *Client) Headless(ctx context.Context, email, password string) (string, 
 		return "", nil, err
 	}
 
-	page, err := c.navigate(browser)
+	page, h, err := c.openSlackAuthTab(browser)
 	if err != nil {
 		return "", nil, err
 	}
-
-	h := newHijacker(page, c.opts.lg)
-	c.atClose(h.Stop)
 
 	if err := c.doAutoLogin(page, email, password); err != nil {
 		return "", nil, err
@@ -118,11 +120,11 @@ func enterCode(page elementer, code int) error {
 
 // startPuppet starts a new browser instance and returns a handle to it.
 func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, error) {
-	l := browserLauncher(headless)
+	l := c.newBrwsrLauncher(headless)
 
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
-		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
+		return nil, ErrBrowser{Err: err, FailedTo: "launch, you may need to close your browser first"}
 	}
 	c.atClose(toerrfn(l.Cleanup))
 
@@ -134,6 +136,7 @@ func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, 
 	browser := rod.New().
 		Context(ctx).
 		ControlURL(url).
+		DefaultDevice(devices.Clear).
 		Trace(c.opts.debug).
 		SlowMotion(delay)
 	c.atClose(browser.Close)
@@ -148,6 +151,10 @@ func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, 
 // doAutoLogin performs the login process on the given page. It expects the
 // page to point to the Slack workspace login page.
 func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
+	// ensure the page is loaded before starting fiddling with it.
+	if err := page.WaitLoad(); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "wait for page to load"}
+	}
 	// if there's no password element on the page, we must be on the "email
 	// login" page.  We need to switch away to the password login.
 	if hasPwdField, _, err := page.Has(idPassword); err != nil {
@@ -205,10 +212,7 @@ func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
 			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
 		}
 		return nil
-	}).Element(idRedirect).Handle(func(e *rod.Element) error {
-		c.opts.lg.Debug("looks like we're on the redirect page")
-		return page.Navigate(c.wspURL)
-	}) // success
+	}).Element(idRedirect).Handle(click) // success
 	if _, err := rctx.Do(); err != nil {
 		return ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
 	}

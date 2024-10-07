@@ -29,22 +29,32 @@ func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	page, err := c.navigate(browser)
+	page, h, err := c.openSlackAuthTab(browser)
 	if err != nil {
 		return "", nil, err
 	}
 
-	h := newHijacker(page, c.opts.lg)
-	c.atClose(h.Stop)
-
 	ctx, cancel := withTabGuard(ctx, browser, page.TargetID, c.opts.lg)
 	defer cancel(nil)
+
+	if !c.opts.forceUser { // bug(rusq): for some reason stalls the user browser, hence disabled.
+		// trap the redirect page and click it.
+		if err := c.trapRedirect(ctx, page); err != nil {
+			return "", nil, err
+		}
+	}
 
 	token, err := h.Token(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	cookies, err := convertCookies(browser.GetCookies())
+
+	var cookies []*http.Cookie
+	cookies, err = convertCookies(browser.GetCookies())
+	if c.opts.forceUser {
+		// we need not store all cookies from the user browser.
+		cookies = filterCookies(cookies)
+	}
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}
 	}

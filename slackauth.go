@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/devices"
+	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -19,9 +21,11 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies     []*http.Cookie
-	userAgent   string
-	autoTimeout time.Duration
+	cookies         []*http.Cookie
+	userAgent       string
+	autoTimeout     time.Duration
+	forceUser       bool // forces opening a browser with user data, instead of the clean one
+	useBundledBrwsr bool // forces using a bundled browser
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
@@ -67,7 +71,26 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
-// Client is a Slackauth client.
+// WithForceUser forces the client to try to use the user's browser.  Using
+// the user's browser can be used to avoid bot-detection mechanisms, as per
+// this [rod issue].
+//
+// [rod issue]: https://github.com/go-rod/rod/issues/1033
+func WithForceUser() Option {
+	return func(o *options) {
+		o.forceUser = true
+	}
+}
+
+// WithBundledBrowser forces the client to use the bundled browser.
+func WithBundledBrowser() Option {
+	return func(o *options) {
+		o.useBundledBrwsr = true
+	}
+}
+
+// Client is a Slackauth client.  Zero value is not usable, use [New] to
+// create a new client.
 type Client struct {
 	wspURL    string
 	cleanupFn []func() error
@@ -97,6 +120,7 @@ func New(workspace string, opt ...Option) (*Client, error) {
 	}, nil
 }
 
+// Close closes the client and cleans up resources.
 func (c *Client) Close() error {
 	var errs error
 	slices.Reverse(c.cleanupFn)
@@ -108,6 +132,7 @@ func (c *Client) Close() error {
 	return errs
 }
 
+// WithLogger sets the logger for the client.
 func WithLogger(l Logger) Option {
 	return func(o *options) {
 		o.lg = l
@@ -132,6 +157,10 @@ func WithDebug(b bool) Option {
 	}
 }
 
+// WithAutoLoginTimeout sets the timeout for the auto-login method.  The
+// default is 40 seconds.  This is the net time needed for the automation
+// process to complete, it does not include the time needed to start the
+// browser, or navigate to the login page.
 func WithAutologinTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d > 0 {
@@ -262,38 +291,67 @@ func (c *Client) atClose(fn func() error) {
 }
 
 func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
-	l := browserLauncher(false)
+	var l *launcher.Launcher
+	if c.opts.forceUser {
+		l = c.usrBrwsrLauncher()
+	} else {
+		l = c.newBrwsrLauncher(false)
+	}
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
-		return nil, ErrBrowser{Err: err, FailedTo: "launch"}
+		return nil, ErrBrowser{Err: err, FailedTo: "launch, you may need to close your browser first"}
 	}
 	c.atClose(toerrfn(l.Cleanup))
 
-	browser := rod.New().Context(ctx).ControlURL(url)
+	browser := rod.New().Context(ctx).ControlURL(url).DefaultDevice(devices.Clear)
 	if err := browser.Connect(); err != nil {
 		return nil, ErrBrowser{Err: err, FailedTo: "connect"}
 	}
-	browser.DefaultDevice(devices.Clear)
 	c.atClose(browser.Close)
 	return browser, nil
 }
 
-func (c *Client) navigate(b *rod.Browser) (*rod.Page, error) {
+// openSlackAuthTab opens the Slack workspace login screen in a new tab and
+// initialises request hijacking.
+func (c *Client) openSlackAuthTab(b *rod.Browser) (*rod.Page, *hijacker, error) {
 	if err := setCookies(b, c.opts.cookies); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	page, err := b.Page(proto.TargetCreateTarget{URL: c.wspURL})
+	// we open the empty page first to be able to setup everything that we
+	// desire before hitting slack workspace login page.
+	pg, err := b.Page(proto.TargetCreateTarget{})
 	if err != nil {
-		return nil, ErrBrowser{Err: err, FailedTo: "open page"}
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "create blank page"}
 	}
+	wait := pg.MustWaitNavigation()
 
+	// set up the request hijacker
+	h, err := newHijacker(pg, c.opts.lg)
+	if err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "create hijacker"}
+	}
+	c.atClose(h.Stop)
 	// patch the user agent if needed
-	if err := c.opts.setUserAgent(page); err != nil {
-		return nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
+	if err := c.opts.setUserAgent(pg); err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
 	}
+	wait()
 
-	return page, nil
+	// now we're ready, navigating to the slack workspace.  If we're running
+	// in the user browser, the traps for the requests are already in place,
+	// so the moment web-client opens, we might already get everything we
+	// need.  If not, the user must be instructed to hit F5 or Cmd+R to
+	// refresh.
+	if err := pg.Navigate(c.wspURL + pathPwdSignin); err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "navigate to login page"}
+	}
+	if err := pg.WaitLoad(); err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "load page"}
+	}
+	c.atClose(pg.Close)
+
+	return pg, h, nil
 }
 
 func toerrfn(fn func()) func() error {
@@ -301,4 +359,54 @@ func toerrfn(fn func()) func() error {
 		fn()
 		return nil
 	}
+}
+
+func filterCookies(cookies []*http.Cookie) []*http.Cookie {
+	// accepted contains the domain substrings that we want to keep cookies for.
+	var accepted = []string{
+		"apple.com",
+		"auth0.com",
+		"google",
+		"okta.com",
+		"onelogin.com",
+		"slack.com",
+	}
+
+	var out []*http.Cookie
+	for _, c := range cookies {
+		if c.Domain == "" {
+			continue
+		}
+		for _, a := range accepted {
+			if strings.Contains(c.Domain, a) {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// trapRedirect traps the redirect page, and clicks the redirect when it
+// appears.
+func (c *Client) trapRedirect(_ context.Context, page *rod.Page) error {
+	rctx := page.Race().Element(idRedirect).Handle(
+		click,
+	).Element(idClientLoaded).Handle(func(e *rod.Element) error {
+		c.opts.lg.Debug("detected home page")
+		return nil
+	})
+
+	if _, err := rctx.Do(); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "trap the client redirect"}
+	}
+
+	return nil
+}
+
+// clicks the element el once with left mouse button.
+func click(el *rod.Element) error {
+	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "click the redirect link"}
+	}
+	return nil
 }

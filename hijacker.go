@@ -23,16 +23,18 @@ type creds struct {
 	Err   error
 }
 
-func newHijacker(page *rod.Page, lg Logger) *hijacker {
+func newHijacker(page *rod.Page, lg Logger) (*hijacker, error) {
 	hj := &hijacker{
 		r:      page.HijackRequests(),
 		credsC: make(chan creds, 1),
 		lg:     lg,
 	}
-
-	hj.r.MustAdd(`*/api/api.features*`, hj.hook)
+	if err := hj.r.Add(`*/api/api.features*`, "", hj.hook); err != nil {
+		return nil, fmt.Errorf("error adding hijack route: %w", err)
+	}
 	go hj.r.Run()
-	return hj
+	lg.Debug("hijacker created")
+	return hj, nil
 }
 
 func (hj *hijacker) hook(h *rod.Hijack) {
@@ -50,12 +52,10 @@ func (hj *hijacker) hook(h *rod.Hijack) {
 }
 
 func (h *hijacker) Stop() error {
+	defer close(h.credsC)
 	if err := h.r.Stop(); err != nil {
 		return err
 	}
-
-	close(h.credsC)
-
 	return nil
 }
 
