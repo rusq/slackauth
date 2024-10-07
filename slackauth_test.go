@@ -92,6 +92,7 @@ func Test_filterCookies(t *testing.T) {
 					{Domain: ".example.com"},
 					{Domain: ".google.co.nz"},
 					{Domain: ".google.com.au"},
+					{Domain: ""},
 					{Domain: ".endlessefforts.onelogin.com"},
 				},
 			},
@@ -110,4 +111,22 @@ func Test_filterCookies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Benchmark_filterCookies(b *testing.B) {
+	// generate a large list of slack cookies
+	var cc = make([]*http.Cookie, 1_000_000)
+	for i := range cc {
+		cc[i] = &http.Cookie{
+			Domain: ".slack.com",
+		}
+	}
+
+	var res []*http.Cookie
+
+	b.ResetTimer()
+	for range b.N {
+		res = filterCookies(cc)
+	}
+	_ = res
 }

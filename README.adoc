@@ -14,16 +14,17 @@ https://pkg.go.dev/github.com/rusq/slackauth[Go package documentation]
 
 The library implements two types of Login:
 
-1. Interactive
-2. Headless
+1. Manual (interactive)
+2. Headless (automatic)
 
-=== Interactive
+=== Manual (interactive)
 
-In the Interactive mode, the browser opens on the address of the Slack
+In the Manual mode, the browser opens on the address of the Slack
 workspace, and user needs to follow the usual authentication flow, it could be
-a Email/Password, SSO, Google, etc.
+a Email/Password, SSO, etc., except Google Auth.  Google has bot detection
+that detects the puppet browser (read below)
 
-Call the `slackauth.Browser` function to start the Interactive login.  It will
+Call the `client.Manual` function to start the Manual login.  It will
 block until the timeout expires or the user does something, i.e. logs in or
 closes the page/browser.
 
@@ -31,6 +32,27 @@ The library detects if the user closes the tab with Slack website or the
 browser, in this case the function returns an error.  It doesn't track the
 website that user is on, so user can navigate away and browse the web, if they
 decide so, until the timeout destroys the browser.
+
+==== Google Auth
+
+Google Authentication is a special case, as it detects the automated browser.
+To authenticate with Google Auth, one needs to use the "WithForceUser" when
+initialising the client with "New", i.e.:
+
+[source,go]
+---
+cl, err := slackauth.New("my_workspace", slackauth.WithForceUser)
+// check error
+---
+
+The user browser must be closed completely (the browser process should not be
+started) before using this option, otherwise ROD will fail to establish the
+connection to the browser, and return an error.
+
+When "cl.Manual()" is called, it will start up the Chrome-family browser
+installed on the system and offer the user to login.  If the browser already
+logged in to the requested workspace, it will hijack the cookies immediately
+after the slack page loads without any required user interaction.
 
 ==== Example
 
@@ -41,7 +63,13 @@ func browserLogin(ctx context.Context) {
 	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
 	defer cancel()
 
-	token, cookies, err := slackauth.Browser(ctx, workspace, slackauth.WithNoConsentPrompt())
+	cl, err := slackauth.New(workspace, slackauth.WithNoConsentPrompt())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cl.Close()
+
+	token, cookies, err := cl.Manual(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -84,7 +112,13 @@ func autoLogin(ctx context.Context) {
 	username := envOrScan("EMAIL", "Enter email: ")
 	password := envOrScan("PASSWORD", "Enter password: ")
 
-	token, cookies, err := slackauth.Headless(ctx, workspace, username, password, slackauth.WithDebug(), slackauth.WithNoConsentPrompt())
+	cl, err := slackauth.New(ctx, workspace, slackauth.WithDebug(), slackauth.WithNoConsentPrompt())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cl.Close()
+
+	token, cookies, err := cl.Headless(ctx, username, password)
 	if err != nil {
 		log.Fatal(err)
 	}

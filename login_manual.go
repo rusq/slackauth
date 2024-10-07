@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"runtime/trace"
 )
 
 // Browser is a function that initiates a login flow in a browser.
@@ -26,11 +27,14 @@ func Manual(ctx context.Context, workspace string, opt ...Option) (string, []*ht
 
 // Manual initiates a login flow in a browser (manual login).
 func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "Manual")
+	defer task.End()
+
 	browser, err := c.startBrowser(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	page, h, err := c.openSlackAuthTab(browser)
+	page, h, err := c.openSlackAuthTab(ctx, browser)
 	if err != nil {
 		return "", nil, err
 	}
@@ -51,7 +55,9 @@ func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	cookies, err = convertCookies(browser.GetCookies())
 	if c.opts.forceUser {
 		// we need not store all cookies from the user browser.
-		cookies = filterCookies(cookies)
+		trace.WithRegion(ctx, "filterCookies", func() {
+			cookies = filterCookies(cookies)
+		})
 	}
 	if err != nil {
 		return "", nil, ErrBrowser{Err: err, FailedTo: "extract cookies"}

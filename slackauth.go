@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/trace"
 	"slices"
 	"strings"
 	"time"
@@ -292,6 +293,9 @@ func (c *Client) atClose(fn func() error) {
 }
 
 func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
+	ctx, task := trace.NewTask(ctx, "startBrowser")
+	defer task.End()
+
 	var l *launcher.Launcher
 	if c.opts.forceUser {
 		l = c.usrBrwsrLauncher()
@@ -314,7 +318,10 @@ func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
 
 // openSlackAuthTab opens the Slack workspace login screen in a new tab and
 // initialises request hijacking.
-func (c *Client) openSlackAuthTab(b *rod.Browser) (*rod.Page, *hijacker, error) {
+func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser) (*rod.Page, *hijacker, error) {
+	ctx, task := trace.NewTask(ctx, "openSlackAuthTab")
+	defer task.End()
+
 	if err := setCookies(b, c.opts.cookies); err != nil {
 		return nil, nil, err
 	}
@@ -328,7 +335,7 @@ func (c *Client) openSlackAuthTab(b *rod.Browser) (*rod.Page, *hijacker, error) 
 	wait := pg.MustWaitNavigation()
 
 	// set up the request hijacker
-	h, err := newHijacker(pg, c.opts.lg)
+	h, err := newHijacker(ctx, pg, c.opts.lg)
 	if err != nil {
 		return nil, nil, ErrBrowser{Err: err, FailedTo: "create hijacker"}
 	}
@@ -365,15 +372,16 @@ func toerrfn(fn func()) func() error {
 func filterCookies(cookies []*http.Cookie) []*http.Cookie {
 	// accepted contains the domain substrings that we want to keep cookies for.
 	var accepted = []string{
+		"slack.com",
+		"google",
 		"apple.com",
 		"auth0.com",
-		"google",
 		"okta.com",
 		"onelogin.com",
-		"slack.com",
 	}
 
-	var out []*http.Cookie
+	var out = make([]*http.Cookie, 0, len(cookies))
+LOOP:
 	for _, c := range cookies {
 		if c.Domain == "" {
 			continue
@@ -381,6 +389,7 @@ func filterCookies(cookies []*http.Cookie) []*http.Cookie {
 		for _, a := range accepted {
 			if strings.Contains(c.Domain, a) {
 				out = append(out, c)
+				continue LOOP
 			}
 		}
 	}
@@ -390,17 +399,28 @@ func filterCookies(cookies []*http.Cookie) []*http.Cookie {
 // trapRedirect traps the redirect page, and clicks the redirect when it
 // appears.
 func (c *Client) trapRedirect(ctx context.Context, page *rod.Page) (context.Context, func(cause error)) {
-	ctx, cancel := context.WithCancelCause(ctx)
-	trappedPg := page.Context(ctx)
+	ctxT, task := trace.NewTask(ctx, "trapRedirect")
+	defer task.End()
+
+	ctxTC, cancel := context.WithCancelCause(ctxT)
+
+	trappedPg := page.Context(ctxTC)
 	rctx := trappedPg.Race().Element(idRedirect).Handle(click)
 	// sets the trap, which uses trappedPg context
-	go rctx.Do()
+	go func() {
+		_, task := trace.NewTask(ctxTC, "race_do")
+		defer task.End()
+
+		rctx.Do()
+	}()
 
 	return ctx, cancel
 }
 
 // clicks the element el once with left mouse button.
 func click(el *rod.Element) error {
+	rgn := trace.StartRegion(el.Page().GetContext(), "click")
+	defer rgn.End()
 	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return ErrBrowser{Err: err, FailedTo: "click the redirect link"}
 	}

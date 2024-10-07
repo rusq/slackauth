@@ -1,3 +1,4 @@
+// Command playground is a manual testing tool.
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime/trace"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -21,14 +23,14 @@ import (
 	"github.com/rusq/slackauth"
 )
 
-var enableTrace = os.Getenv("DEBUG") == "1"
-
 var _ = godotenv.Load()
 
 var (
-	auto     = flag.Bool("auto", false, "attempt auto login")
-	forceNew = flag.Bool("force-user", false, "force open a user browser, instead of the clean one")
-	bundled  = flag.Bool("bundled", false, "force using a bundled browser")
+	auto      = flag.Bool("auto", false, "attempt auto login")
+	forceNew  = flag.Bool("force-user", false, "force open a user browser, instead of the clean one")
+	bundled   = flag.Bool("bundled", false, "force using a bundled browser")
+	isDebug   = flag.Bool("d", os.Getenv("DEBUG") == "1", "enable debug")
+	traceFile = flag.String("trace", "", "trace `filename`")
 )
 
 type testResponse struct {
@@ -53,32 +55,56 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	//browserLogin(ctx)
+
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+func run(ctx context.Context) error {
+	if *traceFile != "" {
+		f, err := os.Create(*traceFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if err := trace.Start(f); err != nil {
+			return err
+		}
+		defer trace.Stop()
+	}
+
+	c, err := initClient(envOrScan("AUTH_WORKSPACE", "Enter workspace: "), *isDebug)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
 
 	var (
 		token   string
 		cookies []*http.Cookie
-		err     error
 	)
 	if *auto {
-		token, cookies, err = autoLogin(ctx)
+		username := envOrScan("EMAIL", "Enter email: ")
+		password := envOrScan("PASSWORD", "Enter password: ")
+		token, cookies, err = autoLogin(ctx, c, username, password)
 	} else {
-		token, cookies, err = browserLogin(ctx)
+		token, cookies, err = browserLogin(ctx, c)
 	}
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if token == "" {
-		log.Fatal("empty token")
+		return errors.New("empty token")
 	}
 	if len(cookies) == 0 {
-		log.Fatal("empty cookies")
+		return errors.New("empty cookies")
 	}
 	slog.Info("attempting slack login")
 	if err := testCreds(ctx, token, cookies); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	slog.Info("login successful")
+	return nil
 }
 
 func testCreds(ctx context.Context, token string, cookies []*http.Cookie) error {
@@ -116,13 +142,10 @@ func testCreds(ctx context.Context, token string, cookies []*http.Cookie) error 
 	return nil
 }
 
-func browserLogin(ctx context.Context) (string, []*http.Cookie, error) {
-	workspace := envOrScan("AUTH_WORKSPACE", "Enter workspace: ")
-	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
-	defer cancel()
-
+func initClient(workspace string, trace bool) (*slackauth.Client, error) {
 	var opts = []slackauth.Option{
 		slackauth.WithNoConsentPrompt(),
+		slackauth.WithDebug(trace),
 	}
 	if *forceNew {
 		opts = append(opts, slackauth.WithForceUser())
@@ -133,39 +156,40 @@ func browserLogin(ctx context.Context) (string, []*http.Cookie, error) {
 
 	c, err := slackauth.New(workspace, opts...)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	defer c.Close()
+	return c, nil
+}
+
+func browserLogin(ctx context.Context, c *slackauth.Client) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "browserLogin")
+	defer task.End()
+
+	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
+	defer cancel()
 	token, cookies, err := c.Manual(ctx)
 	if err != nil {
-		log.Fatal(err)
+		return "", nil, err
 	}
 	fmt.Println(token)
 	printCookies(cookies)
 	return token, cookies, nil
 }
 
-func autoLogin(ctx context.Context) (string, []*http.Cookie, error) {
+func autoLogin(ctx context.Context, c *slackauth.Client, username, password string) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "autoLogin")
+	defer task.End()
 	ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
 	defer cancel()
 
-	workspace := envOrScan("AUTH_WORKSPACE", "Enter workspace: ")
-	username := envOrScan("EMAIL", "Enter email: ")
-	password := envOrScan("PASSWORD", "Enter password: ")
-
-	c, err := slackauth.New(workspace, slackauth.WithDebug(enableTrace), slackauth.WithNoConsentPrompt())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer c.Close()
 	start := time.Now()
 	token, cookies, err := c.Headless(ctx, username, password)
 	if err != nil {
-		log.Fatal(err)
+		return "", nil, err
 	}
+	slog.Info("login duration", "d", time.Since(start))
 	fmt.Println(token)
 	printCookies(cookies)
-	slog.Info("login duration", "d", time.Since(start))
 	return token, cookies, nil
 }
 

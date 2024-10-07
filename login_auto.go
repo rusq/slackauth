@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime/trace"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -50,17 +51,20 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 }
 
 func (c *Client) Headless(ctx context.Context, email, password string) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "Headless")
+	defer task.End()
+
 	browser, err := c.startPuppet(ctx, !c.opts.debug)
 	if err != nil {
 		return "", nil, err
 	}
 
-	page, h, err := c.openSlackAuthTab(browser)
+	page, h, err := c.openSlackAuthTab(ctx, browser)
 	if err != nil {
 		return "", nil, err
 	}
 
-	if err := c.doAutoLogin(page, email, password); err != nil {
+	if err := c.doAutoLogin(ctx, page, email, password); err != nil {
 		return "", nil, err
 	}
 
@@ -120,6 +124,9 @@ func enterCode(page elementer, code int) error {
 
 // startPuppet starts a new browser instance and returns a handle to it.
 func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, error) {
+	ctx, task := trace.NewTask(ctx, "startPuppet")
+	defer task.End()
+
 	l := c.newBrwsrLauncher(headless)
 
 	url, err := l.Context(ctx).Launch()
@@ -150,7 +157,11 @@ func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, 
 
 // doAutoLogin performs the login process on the given page. It expects the
 // page to point to the Slack workspace login page.
-func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
+func (c *Client) doAutoLogin(ctx context.Context, page *rod.Page, email, password string) error {
+	ctx, task := trace.NewTask(ctx, "doAutoLogin")
+	defer task.End()
+
+	page = page.Context(ctx)
 	// ensure the page is loaded before starting fiddling with it.
 	if err := page.WaitLoad(); err != nil {
 		return ErrBrowser{Err: err, FailedTo: "wait for page to load"}
@@ -188,6 +199,8 @@ func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
 		}
 	}
 	rctx := page.Race().Element(idAnyError).Handle(func(e *rod.Element) error {
+		rgn := trace.StartRegion(page.GetContext(), "idAnyError")
+		defer rgn.End()
 		c.opts.lg.Debug("looks like some error occurred")
 		if has, _, err := page.Has(idPasswordError); err == nil && has {
 			el, err := page.Element(idSignInAlertText)
@@ -202,6 +215,8 @@ func (c *Client) doAutoLogin(page *rod.Page, email, password string) error {
 		}
 		return ErrLoginError
 	}).Element(idUnknownBrowser).Handle(func(e *rod.Element) error {
+		rgn := trace.StartRegion(page.GetContext(), "idUnknownBrowser")
+		defer rgn.End()
 		c.opts.lg.Debug("looks like we're on the unknown browser page")
 		code, err := c.opts.codeFn(email)
 		if err != nil {
