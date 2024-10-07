@@ -5,3 +5,5 @@
 *.png
 .idea
 .vscode
+playground
+trace.out

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime/trace"
 	"strings"
 
 	"github.com/go-rod/rod"
@@ -23,16 +24,19 @@ type creds struct {
 	Err   error
 }
 
-func newHijacker(page *rod.Page, lg Logger) *hijacker {
+func newHijacker(ctx context.Context, page *rod.Page, lg Logger) (*hijacker, error) {
+	hPg := page.Context(ctx)
 	hj := &hijacker{
-		r:      page.HijackRequests(),
+		r:      hPg.HijackRequests(),
 		credsC: make(chan creds, 1),
 		lg:     lg,
 	}
-
-	hj.r.MustAdd(`*/api/api.features*`, hj.hook)
+	if err := hj.r.Add(`*/api/api.features*`, "", hj.hook); err != nil {
+		return nil, fmt.Errorf("error adding hijack route: %w", err)
+	}
 	go hj.r.Run()
-	return hj
+	lg.Debug("hijacker created")
+	return hj, nil
 }
 
 func (hj *hijacker) hook(h *rod.Hijack) {
@@ -50,17 +54,17 @@ func (hj *hijacker) hook(h *rod.Hijack) {
 }
 
 func (h *hijacker) Stop() error {
+	defer close(h.credsC)
 	if err := h.r.Stop(); err != nil {
 		return err
 	}
-
-	close(h.credsC)
-
 	return nil
 }
 
 // Token waits for the hijacker to receive a token or an error.
 func (h *hijacker) Token(ctx context.Context) (string, error) {
+	ctx, task := trace.NewTask(ctx, "Token")
+	defer task.End()
 	select {
 	case <-ctx.Done():
 		return "", context.Cause(ctx)
