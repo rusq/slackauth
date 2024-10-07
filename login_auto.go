@@ -31,8 +31,6 @@ const (
 	idUnknownBrowser = `#enter_code_app_root`
 	idDigitN         = `[aria-label="digit %d of 6"]`
 
-	idClientLoaded = `[data-qa="tab_rail_home_button"]`
-
 	debugDelay = 1 * time.Second
 )
 
