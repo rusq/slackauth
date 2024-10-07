@@ -18,6 +18,7 @@ $(info $(dir $(IMAGE_SRC)))
 $(IMAGE): $(IMAGE_SRC)
 
 manual_tests: $(IMAGE)
+	go test ./...
 	./$(IMAGE)
 	./$(IMAGE) -bundled
 	./$(IMAGE) -auto
