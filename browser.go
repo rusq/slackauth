@@ -39,6 +39,7 @@ func (c *Client) usrBrwsrLauncher() *launcher.Launcher {
 func lookPath() (found string, has bool) {
 	list := map[string][]string{
 		"darwin": {
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
 			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 			"/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -49,9 +50,11 @@ func lookPath() (found string, has bool) {
 			"/usr/bin/chromium-browser",
 		},
 		"linux": {
+			"brave-browser",
 			"chrome",
 			"google-chrome",
 			"/usr/bin/google-chrome",
+			"/usr/bin/brave-browser",
 			"microsoft-edge",
 			"/usr/bin/microsoft-edge",
 			"chromium",
@@ -67,6 +70,7 @@ func lookPath() (found string, has bool) {
 			"chromium",
 		},
 		"windows": append([]string{"chrome", "edge"}, expandWindowsExePaths(
+			`BraveSoftware\Brave-Browser\Application\brave.exe`,
 			`Google\Chrome\Application\chrome.exe`,
 			`Chromium\Application\chrome.exe`,
 			`Microsoft\Edge\Application\msedge.exe`,

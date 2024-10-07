@@ -231,13 +231,14 @@ func workspaceURL(workspace string) (string, error) {
 // destroyed.
 func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.TargetTargetID, l Logger) (context.Context, context.CancelCauseFunc) {
 	ctx, cancel := context.WithCancelCause(parent)
-	go browser.EachEvent(func(e *proto.TargetTargetDestroyed) {
+	go browser.EachEvent(func(e *proto.TargetTargetDestroyed) bool {
 		if e.TargetID != targetID {
 			// skipping unrelated target (user opened pages)
-			return
+			return false
 		}
 		l.Debug("target destroyed", "target", e.TargetID)
 		cancel(errors.New("target page is closed"))
+		return true
 	})()
 	return ctx, cancel
 }
@@ -388,19 +389,14 @@ func filterCookies(cookies []*http.Cookie) []*http.Cookie {
 
 // trapRedirect traps the redirect page, and clicks the redirect when it
 // appears.
-func (c *Client) trapRedirect(_ context.Context, page *rod.Page) error {
-	rctx := page.Race().Element(idRedirect).Handle(
-		click,
-	).Element(idClientLoaded).Handle(func(e *rod.Element) error {
-		c.opts.lg.Debug("detected home page")
-		return nil
-	})
+func (c *Client) trapRedirect(ctx context.Context, page *rod.Page) (context.Context, func(cause error)) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	trappedPg := page.Context(ctx)
+	rctx := trappedPg.Race().Element(idRedirect).Handle(click)
+	// sets the trap, which uses trappedPg context
+	go rctx.Do()
 
-	if _, err := rctx.Do(); err != nil {
-		return ErrBrowser{Err: err, FailedTo: "trap the client redirect"}
-	}
-
-	return nil
+	return ctx, cancel
 }
 
 // clicks the element el once with left mouse button.

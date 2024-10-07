@@ -2,6 +2,7 @@ package slackauth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 )
 
@@ -37,12 +38,9 @@ func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	ctx, cancel := withTabGuard(ctx, browser, page.TargetID, c.opts.lg)
 	defer cancel(nil)
 
-	if !c.opts.forceUser { // bug(rusq): for some reason stalls the user browser, hence disabled.
-		// trap the redirect page and click it.
-		if err := c.trapRedirect(ctx, page); err != nil {
-			return "", nil, err
-		}
-	}
+	// trap the redirect page and click it, if it appears.
+	_, stopTrap := c.trapRedirect(ctx, page)
+	defer stopTrap(errors.New("login finished"))
 
 	token, err := h.Token(ctx)
 	if err != nil {
