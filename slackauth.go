@@ -22,11 +22,13 @@ const domain = ".slack.com"
 type Option func(*options)
 
 type options struct {
-	cookies         []*http.Cookie
-	userAgent       string
-	autoTimeout     time.Duration
-	forceUser       bool // forces opening a browser with user data, instead of the clean one
-	useBundledBrwsr bool // forces using a bundled browser
+	cookies     []*http.Cookie
+	userAgent   string
+	autoTimeout time.Duration
+	forceUser   bool // forces opening a browser with user data, instead of the clean one
+
+	useBundledBrwsr bool   // forces using a bundled browser
+	localBrowser    string // path to the local browser binary
 
 	// codeFn is the function that is called when slack does not recognise the
 	// browser and challenges the user with a code sent to email.  it must
@@ -40,6 +42,49 @@ func (o *options) apply(opts []Option) {
 	for _, opt := range opts {
 		opt(o)
 	}
+}
+
+// Client is a Slackauth client.  Zero value is not usable, use [New] to
+// create a new client.
+type Client struct {
+	wspURL    string
+	cleanupFn []func() error
+	opts      options
+}
+
+// New creates a new Slackauth client.
+func New(workspace string, opt ...Option) (*Client, error) {
+	wspURL, err := workspaceURL(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWorkspaceURL(wspURL); err != nil {
+		return nil, err
+	}
+
+	opts := options{
+		lg:          slog.Default(),
+		codeFn:      SimpleChallengeFn,
+		autoTimeout: 40 * time.Second, // default auto-login timeout
+	}
+	opts.apply(opt)
+
+	return &Client{
+		wspURL: wspURL,
+		opts:   opts,
+	}, nil
+}
+
+// Close closes the client and cleans up resources.
+func (c *Client) Close() error {
+	var errs error
+	slices.Reverse(c.cleanupFn)
+	for _, fn := range c.cleanupFn {
+		if err := fn(); err != nil {
+			errs = errors.Join(err, err)
+		}
+	}
+	return errs
 }
 
 // WithNoConsentPrompt adds a cookie that disables the Cookie Consent banner.
@@ -90,47 +135,10 @@ func WithBundledBrowser() Option {
 	}
 }
 
-// Client is a Slackauth client.  Zero value is not usable, use [New] to
-// create a new client.
-type Client struct {
-	wspURL    string
-	cleanupFn []func() error
-	opts      options
-}
-
-// New creates a new Slackauth client.
-func New(workspace string, opt ...Option) (*Client, error) {
-	wspURL, err := workspaceURL(workspace)
-	if err != nil {
-		return nil, err
+func WithLocalBrowser(path string) Option {
+	return func(o *options) {
+		o.localBrowser = path
 	}
-	if err := checkWorkspaceURL(wspURL); err != nil {
-		return nil, err
-	}
-
-	opts := options{
-		lg:          slog.Default(),
-		codeFn:      SimpleChallengeFn,
-		autoTimeout: 40 * time.Second, // default auto-login timeout
-	}
-	opts.apply(opt)
-
-	return &Client{
-		wspURL: wspURL,
-		opts:   opts,
-	}, nil
-}
-
-// Close closes the client and cleans up resources.
-func (c *Client) Close() error {
-	var errs error
-	slices.Reverse(c.cleanupFn)
-	for _, fn := range c.cleanupFn {
-		if err := fn(); err != nil {
-			errs = errors.Join(err, err)
-		}
-	}
-	return errs
 }
 
 // WithLogger sets the logger for the client.

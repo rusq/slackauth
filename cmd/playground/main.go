@@ -79,6 +79,15 @@ func run(ctx context.Context) error {
 	}
 	defer c.Close()
 
+	if b, err := slackauth.ListBrowsers(); err != nil {
+		slog.Warn("no browsers found on the system, using built-in", "err", err)
+	} else {
+		fmt.Println("Available browsers on the system:")
+		for _, br := range b {
+			fmt.Printf("%s:\t%s\n", br.Name, br.Path)
+		}
+	}
+
 	var (
 		token   string
 		cookies []*http.Cookie
