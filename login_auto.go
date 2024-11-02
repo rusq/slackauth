@@ -120,7 +120,8 @@ func enterCode(page elementer, code int) error {
 	return nil
 }
 
-// startPuppet starts a new browser instance and returns a handle to it.
+// startPuppet starts a new browser instance and returns a handle to it.  It ignores
+// user browser flag and always starts an incognito browser.
 func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, error) {
 	ctx, task := trace.NewTask(ctx, "startPuppet")
 	defer task.End()
