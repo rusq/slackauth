@@ -48,7 +48,12 @@ func Headless(ctx context.Context, workspace, email, password string, opt ...Opt
 	return c.Headless(ctx, email, password)
 }
 
-func (c *Client) Headless(ctx context.Context, email, password string) (string, []*http.Cookie, error) {
+// Headless logs the user in headlessly, without opening the browser UI.  It
+// is only suitable for user/email login method, as it does not require any
+// additional user interaction, except the challenge code.  Optional callback
+// function can be provided, it will be called if the challenge code is
+// required.
+func (c *Client) Headless(ctx context.Context, email, password string, callback ...func()) (string, []*http.Cookie, error) {
 	ctx, task := trace.NewTask(ctx, "Headless")
 	defer task.End()
 
@@ -61,8 +66,12 @@ func (c *Client) Headless(ctx context.Context, email, password string) (string, 
 	if err != nil {
 		return "", nil, err
 	}
+	cb := func() {}
+	if len(callback) > 0 {
+		cb = callback[0]
+	}
 
-	if err := c.doAutoLogin(ctx, page, email, password); err != nil {
+	if err := c.doAutoLogin(ctx, page, email, password, cb); err != nil {
 		return "", nil, err
 	}
 
@@ -156,7 +165,7 @@ func (c *Client) startPuppet(ctx context.Context, headless bool) (*rod.Browser, 
 
 // doAutoLogin performs the login process on the given page. It expects the
 // page to point to the Slack workspace login page.
-func (c *Client) doAutoLogin(ctx context.Context, page *rod.Page, email, password string) error {
+func (c *Client) doAutoLogin(ctx context.Context, page *rod.Page, email, password string, challengeCb func()) error {
 	ctx, task := trace.NewTask(ctx, "doAutoLogin")
 	defer task.End()
 
@@ -217,6 +226,7 @@ func (c *Client) doAutoLogin(ctx context.Context, page *rod.Page, email, passwor
 		rgn := trace.StartRegion(page.GetContext(), "idUnknownBrowser")
 		defer rgn.End()
 		c.opts.lg.Debug("looks like we're on the unknown browser page")
+		challengeCb() // call the challenge callback function
 		code, err := c.opts.codeFn(email)
 		if err != nil {
 			return fmt.Errorf("failed to get challenge code: %w", err)
