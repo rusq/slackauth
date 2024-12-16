@@ -186,6 +186,8 @@ var (
 	ErrLoginError = errors.New("slack reported an error during login")
 	// ErrWorkspaceNotFound indicates that the workspace name was invalid.
 	ErrWorkspaceNotFound = errors.New("workspace not found")
+	// ErrInvalidChallengeCode indicates that the challenge code was invalid.
+	ErrInvalidChallengeCode = errors.New("invalid challenge code")
 )
 
 // ErrBadWorkspace is returned when the workspace name is invalid.

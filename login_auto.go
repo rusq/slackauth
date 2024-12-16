@@ -30,6 +30,7 @@ const (
 
 	idUnknownBrowser = `#enter_code_app_root`
 	idDigitN         = `[aria-label="digit %d of 6"]`
+	idCodeError      = `[data-qa="2fa_code_error_alert"]`
 
 	debugDelay = 1 * time.Second
 )
@@ -235,7 +236,13 @@ func (c *Client) doAutoLogin(ctx context.Context, page *rod.Page, email, passwor
 		if err := enterCode(wrapped, code); err != nil {
 			return ErrBrowser{Err: err, FailedTo: "enter challenge code"}
 		}
-		return nil
+		_, err = page.Race().
+			Element(idRedirect).Handle(click).
+			Element(idCodeError).Handle(
+			func(e *rod.Element) error {
+				return ErrInvalidChallengeCode
+			}).Do()
+		return err
 	}).Element(idRedirect).Handle(click) // success
 	if _, err := rctx.Do(); err != nil {
 		return ErrBrowser{Err: err, FailedTo: "wait for login to complete"}
