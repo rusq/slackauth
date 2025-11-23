@@ -1,3 +1,29 @@
+// Package slackauth provides functions for automated and automatic logins into
+// Slack Workspace.
+//
+// # Security and Liability Disclaimer
+//
+// The `slackauth` package is provided "as is", without warranty of any kind,
+// express or implied, including but not limited to the warranties of
+// merchantability, fitness for a particular purpose and noninfringement.
+//
+// The author and contributors do not guarantee that this package is secure,
+// free from vulnerabilities, or suitable for any particular environment. You
+// are solely responsible for:
+//
+//   - Reviewing the code and assessing its suitability for your use case.
+//   - Configuring and deploying it in a secure manner.
+//   - Complying with all applicable laws, regulations, and terms of service
+//     (including, but not limited to, Slack’s terms and policies).
+//
+// In no event shall the author or contributors be liable for any claim,
+// damages, losses, or other liability (including, without limitation, loss of
+// data, security breaches, or unauthorised access to systems or accounts)
+// arising from, out of, or in connection with the software or the use,
+// inability to use, or misuse of the software. By using this package, you
+// accept full responsibility for any and all consequences. educational
+// purposes only.  Use this package only on those workspaces that you have
+// permissions
 package slackauth
 
 import (
@@ -332,29 +358,12 @@ func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser) (*rod.Pag
 	ctx, task := trace.NewTask(ctx, "openSlackAuthTab")
 	defer task.End()
 
-	if err := setCookies(b, c.opts.cookies); err != nil {
-		return nil, nil, err
-	}
-
 	// we open the empty page first to be able to setup everything that we
 	// desire before hitting slack workspace login page.
-	pg, err := b.Page(proto.TargetCreateTarget{})
+	pg, h, err := c.blankPage(ctx, b)
 	if err != nil {
 		return nil, nil, ErrBrowser{Err: err, FailedTo: "create blank page"}
 	}
-	wait := pg.MustWaitNavigation()
-
-	// set up the request hijacker
-	h, err := newHijacker(ctx, pg, c.opts.lg)
-	if err != nil {
-		return nil, nil, ErrBrowser{Err: err, FailedTo: "create hijacker"}
-	}
-	c.atClose(h.Stop)
-	// patch the user agent if needed
-	if err := c.opts.setUserAgent(pg); err != nil {
-		return nil, nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
-	}
-	wait()
 
 	// now we're ready, navigating to the slack workspace.  If we're running
 	// in the user browser, the traps for the requests are already in place,
@@ -367,7 +376,6 @@ func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser) (*rod.Pag
 	if err := pg.WaitLoad(); err != nil {
 		return nil, nil, ErrBrowser{Err: err, FailedTo: "load page"}
 	}
-	c.atClose(pg.Close)
 
 	return pg, h, nil
 }
@@ -434,5 +442,46 @@ func click(el *rod.Element) error {
 	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return ErrBrowser{Err: err, FailedTo: "click the redirect link"}
 	}
+	return nil
+}
+
+func (c *Client) blankPage(ctx context.Context, b *rod.Browser) (*rod.Page, *hijacker, error) {
+	if err := setCookies(b, c.opts.cookies); err != nil {
+		return nil, nil, err
+	}
+
+	// we open the empty page first to be able to setup everything that we
+	// desire before hitting slack workspace login page.
+	pg, err := b.Page(proto.TargetCreateTarget{})
+	if err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "create blank page"}
+	}
+	c.atClose(pg.Close)
+
+	wait := pg.MustWaitNavigation()
+
+	// set up the request hijacker
+	h, err := newHijacker(ctx, pg, c.opts.lg)
+	if err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "create hijacker"}
+	}
+	c.atClose(h.Stop)
+	// patch the user agent if needed
+	if err := c.opts.setUserAgent(pg); err != nil {
+		return nil, nil, ErrBrowser{Err: err, FailedTo: "set user agent"}
+	}
+	wait()
+
+	return pg, h, nil
+}
+
+func (c *Client) openURL(ctx context.Context, pg *rod.Page, URL string) error {
+	ctx, task := trace.NewTask(ctx, "openURL")
+	defer task.End()
+
+	if err := pg.Navigate(URL); err != nil {
+		return ErrBrowser{Err: err, FailedTo: "navigate to login page"}
+	}
+
 	return nil
 }

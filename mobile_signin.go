@@ -5,37 +5,32 @@ import (
 	"errors"
 	"net/http"
 	"runtime/trace"
+	"strings"
+
+	"github.com/rusq/slackauth/internal/qrslack"
 )
 
-// Browser is a function that initiates a login flow in a browser.
-//
-// Deprecated: Use [Client.Manual] instead.
-var Browser = Manual
+var ErrLinkExpired = errors.New("login link expired")
 
-// Manual initiates a login flow in a browser (manual login).
-//
-// Deprecated: Use [Client.Manual] instead.
-func Manual(ctx context.Context, workspace string, opt ...Option) (string, []*http.Cookie, error) {
-	c, err := New(workspace, opt...)
+func (c *Client) QRAuth(ctx context.Context, imageData string) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "QRAuth")
+	defer task.End()
+
+	loginURL, err := qrslack.Decode(imageData)
 	if err != nil {
 		return "", nil, err
 	}
-	defer c.Close()
-
-	return c.Manual(ctx)
-}
-
-// Manual initiates a login flow in a browser (manual login).
-func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
-	ctx, task := trace.NewTask(ctx, "Manual")
-	defer task.End()
 
 	browser, err := c.startBrowser(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	page, h, err := c.openSlackAuthTab(ctx, browser)
+	page, h, err := c.blankPage(ctx, browser)
 	if err != nil {
+		return "", nil, err
+	}
+
+	if err := c.openURL(ctx, page, loginURL); err != nil {
 		return "", nil, err
 	}
 
@@ -46,6 +41,12 @@ func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	_, stopTrap := c.trapRedirect(ctx, page)
 	defer stopTrap(errors.New("login finished"))
 
+	title := page.MustElement("title").MustEval(`() => this.innerText`).String()
+	if strings.Contains(title, "Link expired") {
+		return "", nil, ErrLinkExpired
+	}
+
+	// blocks till it sees the token
 	token, err := h.Token(ctx)
 	if err != nil {
 		return "", nil, err

@@ -10,15 +10,15 @@ import (
 	"github.com/go-rod/rod"
 )
 
-// hijacker is a helper for hijacking requests.
+// hijacker is a contraption to hijack the request holding the token. Once the
+// request is captured, token value is extracted and sent on the credsC
+// channel.  Caller may retrieve it by calling [Token] method.
 type hijacker struct {
 	r      *rod.HijackRouter
 	credsC chan creds
 	lg     Logger
 }
 
-// creds holds token and an error, and is communicated through the credsC
-// channel of the hijacker.
 type creds struct {
 	Token string
 	Err   error
@@ -39,20 +39,21 @@ func newHijacker(ctx context.Context, page *rod.Page, lg Logger) (*hijacker, err
 	return hj, nil
 }
 
-func (hj *hijacker) hook(h *rod.Hijack) {
-	hj.lg.Debug("hijack api.features")
+func (h *hijacker) hook(rh *rod.Hijack) {
+	h.lg.Debug("hijack api.features")
 
-	r := h.Request.Req()
+	r := rh.Request.Req()
 
 	token, err := extractToken(r)
 	if err != nil {
-		hj.credsC <- creds{Err: fmt.Errorf("error parsing token out of request: %v", err)}
+		h.credsC <- creds{Err: fmt.Errorf("error parsing token out of request: %v", err)}
 		return
 	}
 
-	hj.credsC <- creds{Token: token}
+	h.credsC <- creds{Token: token}
 }
 
+// Stop terminates the hijacker and disables request hooks.
 func (h *hijacker) Stop() error {
 	defer close(h.credsC)
 	if err := h.r.Stop(); err != nil {
@@ -61,7 +62,8 @@ func (h *hijacker) Stop() error {
 	return nil
 }
 
-// Token waits for the hijacker to receive a token or an error.
+// Token returns the token value or an error.  If the token has not yet been
+// captured, it blocks until hijacker has captured the token value.
 func (h *hijacker) Token(ctx context.Context) (string, error) {
 	ctx, task := trace.NewTask(ctx, "Token")
 	defer task.End()
@@ -74,12 +76,12 @@ func (h *hijacker) Token(ctx context.Context) (string, error) {
 }
 
 const (
-	maxMem     = 131072
-	paramToken = "token"
+	maxFormParseMem = 131072  // maximum memory for the multipart form parser
+	paramToken      = "token" // token form field name
 )
 
 func extractToken(r *http.Request) (string, error) {
-	if err := r.ParseMultipartForm(maxMem); err != nil {
+	if err := r.ParseMultipartForm(maxFormParseMem); err != nil {
 		return "", fmt.Errorf("error parsing request: %w", err)
 	}
 	tok := strings.TrimSpace(r.Form.Get(paramToken))

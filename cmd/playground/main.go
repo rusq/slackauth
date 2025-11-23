@@ -20,6 +20,9 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/rusq/chttp"
+
+	"github.com/rusq/slackauth/qrslack"
+
 	"github.com/rusq/slackauth"
 )
 
@@ -27,6 +30,7 @@ var _ = godotenv.Load()
 
 var (
 	auto      = flag.Bool("auto", false, "attempt auto login")
+	qr        = flag.Bool("qr", false, "attempt qr code login")
 	forceNew  = flag.Bool("force-user", false, "force open a user browser, instead of the clean one")
 	bundled   = flag.Bool("bundled", false, "force using a bundled browser")
 	isDebug   = flag.Bool("d", os.Getenv("DEBUG") == "1", "enable debug")
@@ -73,7 +77,7 @@ func run(ctx context.Context) error {
 		defer trace.Stop()
 	}
 
-	c, err := initClient(envOrScan("AUTH_WORKSPACE", "Enter workspace: "), *isDebug)
+	c, err := initClient(envOrScan(ctx, "AUTH_WORKSPACE", "Enter workspace: "), *isDebug)
 	if err != nil {
 		return err
 	}
@@ -92,11 +96,14 @@ func run(ctx context.Context) error {
 		token   string
 		cookies []*http.Cookie
 	)
-	if *auto {
-		username := envOrScan("EMAIL", "Enter email: ")
-		password := envOrScan("PASSWORD", "Enter password: ")
+	switch {
+	case *auto:
+		username := envOrScan(ctx, "EMAIL", "Enter email: ")
+		password := envOrScan(ctx, "PASSWORD", "Enter password: ")
 		token, cookies, err = autoLogin(ctx, c, username, password)
-	} else {
+	case *qr:
+		token, cookies, err = qrLogin(ctx, c)
+	default:
 		token, cookies, err = browserLogin(ctx, c)
 	}
 	if err != nil {
@@ -202,6 +209,31 @@ func autoLogin(ctx context.Context, c *slackauth.Client, username, password stri
 	return token, cookies, nil
 }
 
+func qrLogin(ctx context.Context, c *slackauth.Client) (string, []*http.Cookie, error) {
+	ctx, task := trace.NewTask(ctx, "qrLogin")
+	defer task.End()
+	// read image data from stdin
+	imgData := envOrScan(ctx, "QR_CODE", "Paste encoded image data:")
+
+	// ctx, cancel := context.WithTimeoutCause(ctx, 180*time.Second, errors.New("user too slow"))
+	// defer cancel()
+	// _ = ctx
+	loginURL, err := qrslack.Decode(imgData)
+	if err != nil {
+		return "", nil, err
+	}
+	fmt.Println("Decoded:", loginURL)
+	start := time.Now()
+	token, cookies, err := c.QRAuth(ctx, imgData)
+	if err != nil {
+		return "", nil, err
+	}
+	slog.Info("login duration", "d", time.Since(start))
+	fmt.Println(token)
+	printCookies(cookies)
+	return token, cookies, nil
+}
+
 func printCookies(cookies []*http.Cookie) {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 	defer tw.Flush()
@@ -211,14 +243,32 @@ func printCookies(cookies []*http.Cookie) {
 	}
 }
 
-func envOrScan(env, prompt string) string {
+func envOrScan(ctx context.Context, env, prompt string) string {
 	v := os.Getenv(env)
 	if v != "" {
 		return v
 	}
-	for v == "" {
-		fmt.Print(prompt)
-		fmt.Scanln(&v)
+	resC := make(chan string)
+	errC := make(chan error)
+	go func() {
+		for v == "" {
+			fmt.Print(prompt + " ")
+			_, err := fmt.Scanln(&v)
+			if err != nil {
+				errC <- err
+				return
+			}
+		}
+		resC <- v
+	}()
+	select {
+	case <-ctx.Done():
+		return ""
+	case v := <-resC:
+		return v
+	case err := <-errC:
+		fmt.Println("user chose not to continue this journey:", err)
+		os.Exit(2)
 	}
-	return v
+	return "" //should never get here
 }
