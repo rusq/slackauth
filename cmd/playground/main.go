@@ -21,7 +21,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rusq/chttp"
 
-	"github.com/rusq/slackauth/qrslack"
+	"github.com/rusq/slackauth/internal/qrslack"
 
 	"github.com/rusq/slackauth"
 )
