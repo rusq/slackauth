@@ -113,6 +113,9 @@ var browserList = map[string][]LocalBrowser{
 		{bChromium, "/usr/bin/chromium-browser"},
 		{bChromium, "/snap/bin/chromium"},
 		{bChromium, "/data/data/com.termux/files/usr/bin/chromium-browser"},
+		// flatpacks
+		{bBrave, "/var/lib/flatpak/exports/bin/com.brave.Browser"},
+		{bChromium, "/var/lib/flatpak/exports/bin/org.chromium.Chromium"},
 	},
 	"openbsd": {
 		{bChrome, "chrome"},
