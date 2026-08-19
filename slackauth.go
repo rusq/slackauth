@@ -302,10 +302,18 @@ func checkWorkspaceURL(uri string) error {
 	if err != nil {
 		return err
 	}
+	return checkWorkspaceURLWithClient(uri, cl)
+}
+
+func checkWorkspaceURLWithClient(uri string, cl *http.Client) error {
+	defer cl.CloseIdleConnections()
 	// quick status check
-	if resp, err := cl.Head(uri); err != nil {
+	resp, err := cl.Head(uri)
+	if err != nil {
 		return ErrWorkspaceNotFound
-	} else if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusOK {
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: unexpected return code while checking workspace: %d", ErrWorkspaceNotFound, resp.StatusCode)
 	}
 	return nil

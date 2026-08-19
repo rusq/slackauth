@@ -1,6 +1,7 @@
 package slackauth
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	reflect "reflect"
@@ -8,6 +9,35 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
+type trackingBody struct {
+	closed bool
+}
+
+func (b *trackingBody) Read([]byte) (int, error) { return 0, io.EOF }
+
+func (b *trackingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+type trackingTransport struct {
+	body       *trackingBody
+	statusCode int
+	idleClosed bool
+}
+
+func (t *trackingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: t.statusCode,
+		Body:       t.body,
+		Header:     make(http.Header),
+	}, nil
+}
+
+func (t *trackingTransport) CloseIdleConnections() {
+	t.idleClosed = true
+}
 
 func Test_checkWorkspaceURL(t *testing.T) {
 	t.Parallel()
@@ -34,6 +64,24 @@ func Test_checkWorkspaceURL(t *testing.T) {
 		err := checkWorkspaceURL(srv.URL)
 		assert.NoError(t, err)
 	})
+}
+
+func Test_checkWorkspaceURLWithClientClosesResources(t *testing.T) {
+	for _, statusCode := range []int{http.StatusOK, http.StatusNotFound} {
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			body := &trackingBody{}
+			transport := &trackingTransport{body: body, statusCode: statusCode}
+
+			err := checkWorkspaceURLWithClient("https://example.slack.com", &http.Client{Transport: transport})
+			if statusCode == http.StatusOK {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, ErrWorkspaceNotFound)
+			}
+			assert.True(t, body.closed, "workspace check must close the response body")
+			assert.True(t, transport.idleClosed, "workspace check must close idle transport connections")
+		})
+	}
 }
 
 func Test_isURLSafe(t *testing.T) {
