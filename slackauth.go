@@ -41,6 +41,8 @@ import (
 	"github.com/go-rod/rod/lib/devices"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
+	utls "github.com/refraction-networking/utls"
+	"github.com/rusq/chttp/v2"
 )
 
 const domain = ".slack.com"
@@ -192,7 +194,7 @@ func WithDebug(b bool) Option {
 	}
 }
 
-// WithAutoLoginTimeout sets the timeout for the auto-login method.  The
+// WithAutologinTimeout sets the timeout for the auto-login method.  The
 // default is 40 seconds.  This is the net time needed for the automation
 // process to complete, it does not include the time needed to start the
 // browser, or navigate to the login page.
@@ -280,14 +282,39 @@ func withTabGuard(parent context.Context, browser *rod.Browser, targetID proto.T
 	return ctx, cancel
 }
 
+const (
+	slackURL = "https://slack.com"
+)
+
+func httpClient() (*http.Client, error) {
+	return chttp.New(
+		slackURL,
+		[]*http.Cookie{},
+		chttp.WithUserAgent(DefaultUserAgent),
+		chttp.WithUTLS(&utls.Config{}),
+	)
+}
+
 // checkWorkspaceURL checks if the workspace exists.  Slack returns 200 on
 // existing workspaces and 404 on non-existing ones.
 func checkWorkspaceURL(uri string) error {
+	cl, err := httpClient()
+	if err != nil {
+		return err
+	}
+	return checkWorkspaceURLWithClient(uri, cl)
+}
+
+func checkWorkspaceURLWithClient(uri string, cl *http.Client) error {
+	defer cl.CloseIdleConnections()
 	// quick status check
-	if resp, err := http.Head(uri); err != nil {
+	resp, err := cl.Head(uri)
+	if err != nil {
 		return ErrWorkspaceNotFound
-	} else if resp.StatusCode != http.StatusOK {
-		return ErrWorkspaceNotFound
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: unexpected return code while checking workspace: %d", ErrWorkspaceNotFound, resp.StatusCode)
 	}
 	return nil
 }
