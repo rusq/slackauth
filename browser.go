@@ -64,6 +64,7 @@ const (
 	bChromium = "Chromium"
 	bEdge     = "Microsoft Edge"
 	bBrave    = "Brave"
+	bFirefox  = "Firefox"
 )
 
 // LocalBrowser represents a browser that is installed on the system.
@@ -97,6 +98,7 @@ var browserList = map[string][]LocalBrowser{
 		{bChrome, "/usr/bin/google-chrome"},
 		{bChromium, "/usr/bin/chromium"},
 		{bChromium, "/usr/bin/chromium-browser"},
+		{bFirefox, "/Applications/Firefox.app/Contents/MacOS/firefox"},
 	},
 	"linux": {
 		{bBrave, "brave-browser"},
