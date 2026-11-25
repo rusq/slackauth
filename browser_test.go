@@ -6,7 +6,68 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/go-rod/rod/lib/defaults"
+	"github.com/go-rod/rod/lib/launcher/flags"
 )
+
+func TestClient_browserLauncher(t *testing.T) {
+	oldDir, oldPort := defaults.Dir, defaults.Port
+	t.Cleanup(func() { defaults.Dir, defaults.Port = oldDir, oldPort })
+
+	for _, tt := range []struct {
+		name      string
+		manual    bool
+		forceUser bool
+		dir       string
+		port      string
+		wantPrefs string
+	}{
+		{
+			name:      "manual fresh profile",
+			manual:    true,
+			wantPrefs: `{"policy":{"url_blocklist":["slack:*"]}}`,
+		},
+		{
+			name:      "manual user browser",
+			manual:    true,
+			forceUser: true,
+		},
+		{
+			name:   "manual caller profile",
+			manual: true,
+			dir:    t.TempDir(),
+		},
+		{
+			name:   "manual configured debug port",
+			manual: true,
+			port:   "9222",
+		},
+		{
+			name: "QR fresh profile",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			defaults.Dir = tt.dir
+			defaults.Port = "0"
+			if tt.port != "" {
+				defaults.Port = tt.port
+			}
+			c := &Client{opts: options{forceUser: tt.forceUser}}
+			l := c.browserLauncher(tt.manual)
+			if got := l.Get(flags.Preferences); got != tt.wantPrefs {
+				t.Errorf("Preferences = %q, want %q", got, tt.wantPrefs)
+			}
+			if tt.forceUser {
+				if got := l.Get(flags.UserDataDir); got != "" {
+					t.Errorf("user browser UserDataDir = %q, want empty", got)
+				}
+			} else if tt.dir != "" && l.Get(flags.UserDataDir) != tt.dir {
+				t.Errorf("UserDataDir = %q, want %q", l.Get(flags.UserDataDir), tt.dir)
+			}
+		})
+	}
+}
 
 func Test_options_browserPath(t *testing.T) {
 	// create a fake browser

@@ -21,7 +21,7 @@ func (c *Client) QRAuth(ctx context.Context, imageData string) (string, []*http.
 		return "", nil, err
 	}
 
-	browser, err := c.startBrowser(ctx)
+	browser, err := c.startBrowser(ctx, false)
 	if err != nil {
 		return "", nil, err
 	}

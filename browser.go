@@ -9,9 +9,29 @@ import (
 	"runtime"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/defaults"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 )
+
+func (c *Client) usesTemporaryBrowser() bool {
+	// Configured debug ports may reuse a browser instead of starting a fresh one.
+	return !c.opts.forceUser && defaults.Dir == "" && defaults.Port == "0"
+}
+
+func (c *Client) browserLauncher(manual bool) *launcher.Launcher {
+	if c.opts.forceUser {
+		return c.usrBrwsrLauncher()
+	}
+	l := c.newBrwsrLauncher(false)
+	if manual && c.usesTemporaryBrowser() {
+		// Chrome's desktop app prompt can interrupt the redirect to the Slack
+		// web workspace, which must load for automatic token/cookie capture.
+		// Preferences replaces the file, so only set it for a fresh Rod profile.
+		l.Preferences(`{"policy":{"url_blocklist":["slack:*"]}}`)
+	}
+	return l
+}
 
 // newBrwsrLauncher creates a new incognito browser launcher with the given
 // headless mode.
