@@ -2,10 +2,14 @@ package slackauth
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"net/http"
 	"runtime/trace"
 )
+
+//go:embed manual_navigation.js
+var manualNavigationScript string
 
 // Browser is a function that initiates a login flow in a browser.
 //
@@ -30,11 +34,11 @@ func (c *Client) Manual(ctx context.Context) (string, []*http.Cookie, error) {
 	ctx, task := trace.NewTask(ctx, "Manual")
 	defer task.End()
 
-	browser, err := c.startBrowser(ctx)
+	browser, err := c.startBrowser(ctx, true)
 	if err != nil {
 		return "", nil, err
 	}
-	page, h, err := c.openSlackAuthTab(ctx, browser)
+	page, h, err := c.openSlackAuthTab(ctx, browser, true)
 	if err != nil {
 		return "", nil, err
 	}

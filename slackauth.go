@@ -39,7 +39,6 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/devices"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	utls "github.com/refraction-networking/utls"
 	"github.com/rusq/chttp/v2"
@@ -355,16 +354,11 @@ func (c *Client) atClose(fn func() error) {
 	c.cleanupFn = append(c.cleanupFn, fn)
 }
 
-func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
+func (c *Client) startBrowser(ctx context.Context, manual bool) (*rod.Browser, error) {
 	ctx, task := trace.NewTask(ctx, "startBrowser")
 	defer task.End()
 
-	var l *launcher.Launcher
-	if c.opts.forceUser {
-		l = c.usrBrwsrLauncher()
-	} else {
-		l = c.newBrwsrLauncher(false)
-	}
+	l := c.browserLauncher(manual)
 	url, err := l.Context(ctx).Launch()
 	if err != nil {
 		return nil, ErrBrowser{Err: err, FailedTo: "launch, you may need to close your browser first"}
@@ -381,7 +375,7 @@ func (c *Client) startBrowser(ctx context.Context) (*rod.Browser, error) {
 
 // openSlackAuthTab opens the Slack workspace login screen in a new tab and
 // initialises request hijacking.
-func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser) (*rod.Page, *hijacker, error) {
+func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser, manual bool) (*rod.Page, *hijacker, error) {
 	ctx, task := trace.NewTask(ctx, "openSlackAuthTab")
 	defer task.End()
 
@@ -390,6 +384,11 @@ func (c *Client) openSlackAuthTab(ctx context.Context, b *rod.Browser) (*rod.Pag
 	pg, h, err := c.blankPage(ctx, b)
 	if err != nil {
 		return nil, nil, ErrBrowser{Err: err, FailedTo: "create blank page"}
+	}
+	if manual && c.usesTemporaryBrowser() {
+		if _, err := pg.EvalOnNewDocument(manualNavigationScript); err != nil {
+			return nil, nil, ErrBrowser{Err: err, FailedTo: "keep manual login in the web browser"}
+		}
 	}
 
 	// now we're ready, navigating to the slack workspace.  If we're running

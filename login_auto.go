@@ -63,7 +63,7 @@ func (c *Client) Headless(ctx context.Context, email, password string, callback 
 		return "", nil, err
 	}
 
-	page, h, err := c.openSlackAuthTab(ctx, browser)
+	page, h, err := c.openSlackAuthTab(ctx, browser, false)
 	if err != nil {
 		return "", nil, err
 	}
